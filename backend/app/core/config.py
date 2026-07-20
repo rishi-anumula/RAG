@@ -1,0 +1,50 @@
+import os
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+
+    # Deprecated: Supabase Connection settings (unused in offline SQLite mode)
+    SUPABASE_URL: str = Field(default="")
+    SUPABASE_ANON_KEY: str = Field(default="")
+    SUPABASE_SERVICE_ROLE_KEY: str = Field(default="")
+    GOOGLE_API_KEY: str = Field(default="")
+    SECRET_KEY: str = Field(default="fallback_secret_key_for_development_only_change_in_prod")
+    DATABASE_URL: str = Field(default="")
+    CHROMA_DB_PATH: str = Field(default="./chroma_db")
+    UPLOAD_FOLDER: str = Field(default="./uploads")
+    
+    HOST: str = Field(default="0.0.0.0")
+    PORT: int = Field(default=8000)
+    
+    # RAG Settings
+    EMBEDDING_MODEL_NAME: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
+    GEMINI_MODEL_NAME: str = Field(default="gemini-1.5-flash")
+    USE_LOCAL_EMBEDDINGS: bool = Field(default=False)
+
+    from pydantic import field_validator
+
+    @field_validator(
+        "SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
+        "GOOGLE_API_KEY", "SECRET_KEY", "DATABASE_URL", "CHROMA_DB_PATH",
+        "UPLOAD_FOLDER", "HOST",
+        mode="before"
+    )
+    @classmethod
+    def trim_spaces(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.strip()
+        return v
+
+# Global settings instance
+settings = Settings()
+
+# Ensure directories exist
+os.makedirs(settings.UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(settings.CHROMA_DB_PATH, exist_ok=True)
+os.makedirs("./logs", exist_ok=True)

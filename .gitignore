@@ -1,0 +1,28 @@
+# Local environment variables containing sensitive API keys
+.env
+.env.*
+!.env.example
+
+# Python virtual environment and cache
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.pytest/
+logs/
+backend/logs/
+
+# Local databases and uploads
+chroma_db/
+backend/chroma_db/
+uploads/
+backend/uploads/
+
+# Frontend packages and build artifacts
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.oxlintrc.json
