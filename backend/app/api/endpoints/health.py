@@ -29,12 +29,12 @@ def health_check():
     except Exception:
         gemini_status = "disconnected"
 
-    # 3. ChromaDB connection check
+    # 3. Vector Database connection check (labeled as chromadb for compatibility)
     chromadb_status = "disconnected"
     try:
-        from app.vectorstore.chroma_client import chroma_client
-        if chroma_client.heartbeat() is not None:
-            chromadb_status = "connected"
+        client = get_supabase_client()
+        client.table("document_chunks").select("id").limit(1).execute()
+        chromadb_status = "connected"
     except Exception:
         chromadb_status = "disconnected"
 
@@ -97,12 +97,12 @@ def debug_config():
     except Exception as e:
         internet_conn = f"failed: {e}"
 
-    # 6. ChromaDB Status
+    # 6. Vector Database Status (labeled as chroma_status for compatibility)
     chroma_status = "disconnected"
     try:
-        from app.vectorstore.chroma_client import chroma_client
-        if chroma_client.heartbeat() is not None:
-            chroma_status = "connected"
+        client = get_supabase_client()
+        client.table("document_chunks").select("id").limit(1).execute()
+        chroma_status = "connected"
     except Exception as e:
         chroma_status = f"failed: {e}"
 

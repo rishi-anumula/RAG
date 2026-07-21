@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime
 from app.core.config import settings
 from app.core.logging_config import get_logger
+from supabase import create_client, Client
 
 logger = get_logger(__name__)
 
@@ -59,6 +60,21 @@ def init_local_db(db_path):
         citations TEXT,
         sources TEXT,
         feedback TEXT,
+        created_at TEXT
+    )
+    """)
+    
+    # Create document_chunks table for local SQLite pgvector mock fallback
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS document_chunks (
+        id TEXT PRIMARY KEY,
+        document_id TEXT,
+        user_id TEXT,
+        filename TEXT,
+        page_number INTEGER,
+        chunk_number INTEGER,
+        content TEXT,
+        embedding TEXT,
         created_at TEXT
     )
     """)
@@ -375,8 +391,24 @@ mock_client = MockSupabaseClient()
 supabase_anon = mock_client
 supabase_service = mock_client
 
-def get_supabase_client(use_service_role: bool = True) -> MockSupabaseClient:
+def get_supabase_client(use_service_role: bool = True) -> Client:
     """
-    Returns the appropriate Mock Client mimicking Supabase on top of a local SQLite store.
+    Returns the appropriate Supabase client. If local mock key settings are present,
+    falls back to the SQLite Mock client to allow offline testing and execution.
     """
-    return mock_client
+    is_mock = (
+        not settings.SUPABASE_URL 
+        or "supabase.co" not in settings.SUPABASE_URL
+        or not settings.SUPABASE_ANON_KEY 
+        or "anon" in settings.SUPABASE_ANON_KEY.lower()
+    )
+    if is_mock:
+        return mock_client
+        
+    url = settings.SUPABASE_URL
+    key = settings.SUPABASE_SERVICE_ROLE_KEY if use_service_role else settings.SUPABASE_ANON_KEY
+    if not key:
+        key = settings.SUPABASE_ANON_KEY
+        
+    # Return real client
+    return create_client(url, key)

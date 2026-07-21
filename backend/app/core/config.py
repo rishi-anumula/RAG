@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str = Field(default="")
     SECRET_KEY: str = Field(default="fallback_secret_key_for_development_only_change_in_prod")
     DATABASE_URL: str = Field(default="")
-    CHROMA_DB_PATH: str = Field(default="./chroma_db")
     UPLOAD_FOLDER: str = Field(default="./uploads")
     
     HOST: str = Field(default="0.0.0.0")
@@ -31,7 +30,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
-        "GOOGLE_API_KEY", "SECRET_KEY", "DATABASE_URL", "CHROMA_DB_PATH",
+        "GOOGLE_API_KEY", "SECRET_KEY", "DATABASE_URL",
         "UPLOAD_FOLDER", "HOST",
         mode="before"
     )
@@ -46,5 +45,4 @@ settings = Settings()
 
 # Ensure directories exist
 os.makedirs(settings.UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(settings.CHROMA_DB_PATH, exist_ok=True)
 os.makedirs("./logs", exist_ok=True)

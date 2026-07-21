@@ -9,7 +9,7 @@ from app.core.logging_config import get_logger
 from app.database.supabase_client import get_supabase_client
 from app.services.pdf_service import pdf_service
 from app.embeddings.embedder import embedding_service
-from app.vectorstore.chroma_client import add_document_chunks, delete_document_chunks
+from app.vectorstore.supabase_vector_client import add_document_chunks, delete_document_chunks
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])

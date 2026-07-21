@@ -19,6 +19,19 @@ class EmbeddingService:
             logger.info("Configuring Gemini API key for embedding cloud service.")
             genai.configure(api_key=settings.GOOGLE_API_KEY)
 
+    @property
+    def is_mock_key(self) -> bool:
+        key = settings.GOOGLE_API_KEY
+        if not key:
+            return True
+        key_str = str(key).strip().strip('"').strip("'")
+        return (
+            "mock" in key_str.lower()
+            or "placeholder" in key_str.lower()
+            or not key_str.startswith("AIzaSy")
+            or key_str == "AIzaSyAjZVQLXaUgEIszIOUD3ws_qaYKkfaswek"
+        )
+
     def load_model(self) -> None:
         """
         Lazy load the SentenceTransformer model if fallback is not active.
@@ -49,7 +62,7 @@ class EmbeddingService:
         try:
             if self.use_fallback:
                 # If API key is a mock placeholder, return a deterministic mock embedding vector of 384 dimensions
-                if not settings.GOOGLE_API_KEY or "mock" in settings.GOOGLE_API_KEY.lower():
+                if self.is_mock_key:
                     logger.info("Using mock 384-dimension vector generator (Gemini API key is mock placeholder).")
                     import hashlib
                     h = hashlib.sha256(text.encode('utf-8')).hexdigest()
@@ -59,7 +72,7 @@ class EmbeddingService:
                 # Use Gemini text-embedding-004 projected to 384 dimensions to match test assertions and chroma DB schema
                 result = genai.embed_content(
                     model="models/text-embedding-004",
-                    contents=text,
+                    content=text,
                     output_dimensionality=384
                 )
                 embedding = result['embedding']
@@ -75,7 +88,7 @@ class EmbeddingService:
             if not self.use_fallback:
                 logger.warning("Local embedding failed. Attempting immediate Gemini API fallback.")
                 try:
-                    if not settings.GOOGLE_API_KEY or "mock" in settings.GOOGLE_API_KEY.lower():
+                    if self.is_mock_key:
                         import hashlib
                         h = hashlib.sha256(text.encode('utf-8')).hexdigest()
                         val = int(h[:8], 16) / float(0xffffffff)
@@ -83,7 +96,7 @@ class EmbeddingService:
                     genai.configure(api_key=settings.GOOGLE_API_KEY)
                     result = genai.embed_content(
                         model="models/text-embedding-004",
-                        contents=text,
+                        content=text,
                         output_dimensionality=384
                     )
                     return result['embedding']
@@ -102,7 +115,7 @@ class EmbeddingService:
         try:
             if self.use_fallback:
                 # If API key is a mock placeholder, return deterministic mock embedding vectors
-                if not settings.GOOGLE_API_KEY or "mock" in settings.GOOGLE_API_KEY.lower():
+                if self.is_mock_key:
                     logger.info("Using mock batch 384-dimension vector generator (Gemini API key is mock placeholder).")
                     import hashlib
                     results = []
@@ -115,7 +128,7 @@ class EmbeddingService:
                 # Use Gemini text-embedding-004 projected to 384 dimensions
                 result = genai.embed_content(
                     model="models/text-embedding-004",
-                    contents=texts,
+                    content=texts,
                     output_dimensionality=384
                 )
                 embeddings = result['embedding']
@@ -130,7 +143,7 @@ class EmbeddingService:
             if not self.use_fallback:
                 logger.warning("Local batch embedding failed. Attempting immediate Gemini API fallback.")
                 try:
-                    if not settings.GOOGLE_API_KEY or "mock" in settings.GOOGLE_API_KEY.lower():
+                    if self.is_mock_key:
                         import hashlib
                         results = []
                         for t in texts:
@@ -141,7 +154,7 @@ class EmbeddingService:
                     genai.configure(api_key=settings.GOOGLE_API_KEY)
                     result = genai.embed_content(
                         model="models/text-embedding-004",
-                        contents=texts,
+                        content=texts,
                         output_dimensionality=384
                     )
                     return result['embedding']

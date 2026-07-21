@@ -11,6 +11,7 @@ from app.core.logging_config import get_logger
 from app.embeddings.embedder import embedding_service
 from app.api.endpoints import auth, documents, chat, dashboard, health
 from app.core.errors import is_connection_error
+from app.database.supabase_client import get_supabase_client
 
 # Reconfigure stdout/stderr to support Unicode characters on Windows console
 if hasattr(sys.stdout, "reconfigure"):
@@ -34,17 +35,14 @@ def validate_startup_config():
     else:
         print("✓ Gemini API Loaded")
         
-    # 3. ChromaDB
+    # 3. Supabase Vector Store Connection
     try:
-        from app.vectorstore.chroma_client import chroma_client
-        if chroma_client.heartbeat() is not None:
-            print("✓ ChromaDB Connected")
-        else:
-            print("✗ ChromaDB Connected: connection failed")
-            errors.append("Failed to establish heartbeat connection with ChromaDB.")
+        supabase = get_supabase_client()
+        supabase.table("document_chunks").select("id").limit(1).execute()
+        print("✓ Supabase Vector Store Connected")
     except Exception as e:
-        print(f"✗ ChromaDB Connected: {e}")
-        errors.append(f"Failed to connect to ChromaDB: {e}")
+        print(f"✗ Supabase Vector Store Connected: {e}")
+        errors.append(f"Failed to connect to Supabase Vector Store: {e}")
         
     # 4. Upload Folder
     if not settings.UPLOAD_FOLDER:

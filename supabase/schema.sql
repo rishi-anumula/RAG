@@ -170,3 +170,88 @@ create policy "Allow owners to delete their files"
         and auth.role() = 'authenticated'
         and (storage.foldername(name))[1] = auth.uid()::text
     );
+
+---------------------------------------------------------
+-- PGVECTOR & DOCUMENT CHUNKS FOR VECTOR MATCHING
+---------------------------------------------------------
+
+-- Enable pgvector extension
+create extension if not exists vector;
+
+-- 4. Document Chunks Table
+create table if not exists public.document_chunks (
+    id uuid primary key default gen_random_uuid(),
+    document_id uuid not null references public.documents(id) on delete cascade,
+    user_id uuid not null references auth.users(id) on delete cascade,
+    filename text not null,
+    page_number integer not null,
+    chunk_number integer not null,
+    content text not null,
+    embedding vector(384),
+    created_at timestamptz not null default now()
+);
+
+-- Add index on user_id and document_id
+create index if not exists idx_document_chunks_user_id on public.document_chunks(user_id);
+create index if not exists idx_document_chunks_document_id on public.document_chunks(document_id);
+
+-- Add vector cosine index for similarity search
+create index if not exists idx_document_chunks_embedding 
+on public.document_chunks using hnsw (embedding vector_cosine_ops);
+
+-- Enable Row Level Security (RLS)
+alter table public.document_chunks enable row level security;
+
+-- Policies for document chunks
+create policy "Users can view their own document chunks"
+    on public.document_chunks for select
+    using (auth.uid() = user_id);
+
+create policy "Users can insert their own document chunks"
+    on public.document_chunks for insert
+    with check (auth.uid() = user_id);
+
+create policy "Users can delete their own document chunks"
+    on public.document_chunks for delete
+    using (auth.uid() = user_id);
+
+-- Cosine Similarity Search RPC Function
+create or replace function public.match_document_chunks (
+  query_embedding vector(384),
+  match_threshold float,
+  match_count int,
+  filter_user_id uuid,
+  filter_document_ids uuid[] default null
+)
+returns table (
+  id uuid,
+  document_id uuid,
+  user_id uuid,
+  filename text,
+  page_number integer,
+  chunk_number integer,
+  content text,
+  similarity float
+)
+language plpgsql
+stable
+as $$
+begin
+  return query
+  select
+    document_chunks.id,
+    document_chunks.document_id,
+    document_chunks.user_id,
+    document_chunks.filename,
+    document_chunks.page_number,
+    document_chunks.chunk_number,
+    document_chunks.content,
+    1 - (document_chunks.embedding <=> query_embedding) as similarity
+  from document_chunks
+  where document_chunks.user_id = filter_user_id
+    and (filter_document_ids is null or document_chunks.document_id = any(filter_document_ids))
+    and 1 - (document_chunks.embedding <=> query_embedding) > match_threshold
+  order by document_chunks.embedding <=> query_embedding
+  limit match_count;
+end;
+$$;

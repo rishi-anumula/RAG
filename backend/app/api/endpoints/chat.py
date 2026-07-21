@@ -6,7 +6,7 @@ from app.core.security import get_current_user
 from app.core.logging_config import get_logger
 from app.database.supabase_client import get_supabase_client
 from app.embeddings.embedder import embedding_service
-from app.vectorstore.chroma_client import search_similar_chunks
+from app.vectorstore.supabase_vector_client import search_similar_chunks
 from app.services.gemini_service import gemini_service
 
 logger = get_logger(__name__)
