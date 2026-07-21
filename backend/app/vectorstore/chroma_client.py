@@ -8,6 +8,13 @@ logger = get_logger(__name__)
 # Initialize Persistent Chroma Client
 try:
     from chromadb.config import Settings
+    
+    # Custom dummy embedding function to prevent ChromaDB from loading
+    # the heavy default ONNX/SentenceTransformer models at startup, saving RAM.
+    class DummyEmbeddingFunction:
+        def __call__(self, input: List[str]) -> List[List[float]]:
+            return []
+
     chroma_client = chromadb.PersistentClient(
         path=settings.CHROMA_DB_PATH,
         settings=Settings(anonymized_telemetry=False)
@@ -15,7 +22,8 @@ try:
     # Get or create collection
     collection = chroma_client.get_or_create_collection(
         name="kb_documents",
-        metadata={"hnsw:space": "cosine"}  # Use cosine similarity
+        metadata={"hnsw:space": "cosine"},  # Use cosine similarity
+        embedding_function=DummyEmbeddingFunction()
     )
     logger.info("Successfully connected to ChromaDB persistent storage.")
 except Exception as e:
