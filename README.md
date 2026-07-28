@@ -96,7 +96,8 @@ root/
 Create a `.env` file at the project root matching `.env.example`:
 
 ```env
-SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_URL=https://zpvqzkozjecupcletjpc.supabase.co
+DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.zpvqzkozjecupcletjpc.supabase.co:5432/postgres
 SUPABASE_ANON_KEY=your-anon-api-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 GOOGLE_API_KEY=your-google-gemini-api-key

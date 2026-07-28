@@ -378,6 +378,7 @@ class MockAuth:
 class MockSupabaseClient:
     def __init__(self):
         # Create database file under the designated uploads folder
+        os.makedirs(settings.UPLOAD_FOLDER, exist_ok=True)
         self.db_path = os.path.join(settings.UPLOAD_FOLDER, "local_database.db")
         self.storage = MockStorage()
         init_local_db(self.db_path)
