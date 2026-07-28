@@ -130,17 +130,17 @@ async def socket_gaierror_handler(request: Request, exc: socket.gaierror):
     )
 
 # CORS Configuration
-# Adjust origins in production if necessary
 origins = [
     "http://localhost:5173",  # Vite Dev Server
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    "*"                       # Fallback wildcard
+    "https://rag-1-6u80.onrender.com",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.onrender\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
