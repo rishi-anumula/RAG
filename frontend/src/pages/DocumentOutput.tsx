@@ -236,6 +236,142 @@ export const DocumentOutput: React.FC = () => {
     printWindow.document.close();
   };
 
+  const handleDownloadSingleChunkPdf = (chunk: ChunkItem) => {
+    if (!document) return;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Pop-up blocked! Please allow pop-ups for this site to download the chunk PDF.');
+      return;
+    }
+
+    const chunkTitle = `${document.name} - Page ${chunk.page_number} Chunk ${chunk.chunk_number + 1}`;
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${chunkTitle}</title>
+          <style>
+            @page { size: A4; margin: 15mm; }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+              color: #0f172a;
+              line-height: 1.6;
+              padding: 0;
+              margin: 0;
+            }
+            .header {
+              border-bottom: 2px solid #6366f1;
+              padding-bottom: 12px;
+              margin-bottom: 20px;
+            }
+            .title {
+              font-size: 20px;
+              font-weight: 800;
+              color: #0f172a;
+              margin: 0 0 4px 0;
+            }
+            .subtitle {
+              font-size: 12px;
+              color: #64748b;
+              margin: 0;
+            }
+            .meta-grid {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 10px;
+              margin-bottom: 20px;
+              background-color: #f8fafc;
+              padding: 12px;
+              border-radius: 8px;
+              border: 1px solid #e2e8f0;
+            }
+            .meta-item {
+              display: flex;
+              flex-direction: column;
+            }
+            .meta-label {
+              font-size: 9px;
+              text-transform: uppercase;
+              font-weight: 700;
+              color: #64748b;
+            }
+            .meta-value {
+              font-size: 12px;
+              font-weight: 700;
+              color: #0f172a;
+              margin-top: 2px;
+            }
+            .section-title {
+              font-size: 14px;
+              font-weight: 700;
+              color: #4f46e5;
+              margin: 20px 0 10px 0;
+              border-bottom: 1px solid #e2e8f0;
+              padding-bottom: 4px;
+            }
+            .chunk-box {
+              background: #f8fafc;
+              border: 1px solid #cbd5e1;
+              border-radius: 6px;
+              padding: 16px;
+              font-size: 12px;
+              color: #1e293b;
+              white-space: pre-wrap;
+            }
+            .footer {
+              margin-top: 30px;
+              font-size: 9px;
+              color: #94a3b8;
+              text-align: center;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 8px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1 class="title">${document.name}</h1>
+            <p class="subtitle">Extracted Segment Report — Page ${chunk.page_number} | Chunk #${chunk.chunk_number + 1}</p>
+          </div>
+
+          <div class="meta-grid">
+            <div class="meta-item">
+              <span class="meta-label">Page Number</span>
+              <span class="meta-value">Page ${chunk.page_number}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Chunk Index</span>
+              <span class="meta-value">Chunk #${chunk.chunk_number + 1}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Length</span>
+              <span class="meta-value">${chunk.content.length} Characters</span>
+            </div>
+          </div>
+
+          <h2 class="section-title">Chunk Extracted Text</h2>
+
+          <div class="chunk-box">${chunk.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+
+          <div class="footer">
+            Generated on ${new Date().toLocaleString()} — AI Knowledge Base Search System
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   // Filter chunks based on search query and selected page
   const filteredChunks = chunks.filter(chunk => {
     const matchesPage = selectedPage === 'all' || chunk.page_number === selectedPage;
@@ -473,23 +609,34 @@ export const DocumentOutput: React.FC = () => {
                         </span>
                       </div>
 
-                      <button
-                        onClick={() => handleCopy(chunk.content, chunk.id || `${idx}`)}
-                        className="p-1.5 bg-dark-800 hover:bg-dark-700 text-dark-400 hover:text-white rounded-lg transition-all border border-dark-750 flex items-center space-x-1 text-xs"
-                        title="Copy text chunk"
-                      >
-                        {copiedId === (chunk.id || `${idx}`) ? (
-                          <>
-                            <Check className="h-3.5 w-3.5 text-emerald-400" />
-                            <span className="text-emerald-400 font-medium">Copied</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="h-3.5 w-3.5" />
-                            <span>Copy</span>
-                          </>
-                        )}
-                      </button>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => handleCopy(chunk.content, chunk.id || `${idx}`)}
+                          className="p-1.5 bg-dark-800 hover:bg-dark-700 text-dark-400 hover:text-white rounded-lg transition-all border border-dark-750 flex items-center space-x-1 text-xs"
+                          title="Copy text chunk"
+                        >
+                          {copiedId === (chunk.id || `${idx}`) ? (
+                            <>
+                              <Check className="h-3.5 w-3.5 text-emerald-400" />
+                              <span className="text-emerald-400 font-medium">Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5" />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => handleDownloadSingleChunkPdf(chunk)}
+                          className="p-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 hover:text-emerald-300 rounded-lg transition-all border border-emerald-500/20 flex items-center space-x-1 text-xs font-semibold"
+                          title="Download this specific chunk as PDF"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          <span>Chunk PDF</span>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Chunk Content */}
