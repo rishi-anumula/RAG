@@ -26,11 +26,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(false);
   }, []);
 
-  const login = async (credentials: LoginCredentials) => {
+  const login = async (_credentials: LoginCredentials) => {
     return Promise.resolve();
   };
 
-  const signup = async (credentials: LoginCredentials) => {
+  const signup = async (_credentials: LoginCredentials) => {
     return Promise.resolve();
   };
 
