@@ -394,22 +394,19 @@ supabase_service = mock_client
 
 def get_supabase_client(use_service_role: bool = True) -> Client:
     """
-    Returns the appropriate Supabase client. If local mock key settings are present,
+    Returns the appropriate Supabase client. If Supabase credentials are not provided,
     falls back to the SQLite Mock client to allow offline testing and execution.
     """
-    is_mock = (
-        not settings.SUPABASE_URL 
-        or "supabase.co" not in settings.SUPABASE_URL
-        or not settings.SUPABASE_ANON_KEY 
-        or "anon" in settings.SUPABASE_ANON_KEY.lower()
+    has_supabase = bool(
+        settings.SUPABASE_URL 
+        and "supabase.co" in settings.SUPABASE_URL
+        and (settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_ANON_KEY)
     )
-    if is_mock:
+    if not has_supabase:
         return mock_client
         
     url = settings.SUPABASE_URL
-    key = settings.SUPABASE_SERVICE_ROLE_KEY if use_service_role else settings.SUPABASE_ANON_KEY
-    if not key:
-        key = settings.SUPABASE_ANON_KEY
+    key = settings.SUPABASE_SERVICE_ROLE_KEY if (use_service_role and settings.SUPABASE_SERVICE_ROLE_KEY) else (settings.SUPABASE_ANON_KEY or settings.SUPABASE_SERVICE_ROLE_KEY)
         
-    # Return real client
+    # Return real Supabase Cloud client with service_role / anon key
     return create_client(url, key)
