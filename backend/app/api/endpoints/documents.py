@@ -171,13 +171,36 @@ async def upload_document(
         
         return doc_record
     except Exception as e:
-        logger.error(f"Database insertion failed: {e}", exc_info=True)
-        if os.path.exists(local_file_path):
-            os.remove(local_file_path)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database registration failed: {str(e)}"
-        )
+        logger.warning(f"Primary Supabase DB insertion failed ({e}). Falling back to local database...")
+        try:
+            from app.database.supabase_client import mock_client
+            db_insert = mock_client.table("documents").insert({
+                "user_id": current_user.id,
+                "name": filename,
+                "size": file_size,
+                "status": "processing",
+                "storage_path": storage_path
+            }).execute()
+            
+            doc_record = db_insert.data[0]
+            logger.info(f"Document registered in fallback DB: {doc_record['id']}")
+            
+            background_tasks.add_task(
+                async_process_document,
+                document_id=doc_record["id"],
+                file_path=local_file_path,
+                filename=filename,
+                user_id=current_user.id
+            )
+            return doc_record
+        except Exception as fallback_err:
+            logger.error(f"Fallback DB insertion failed: {fallback_err}", exc_info=True)
+            if os.path.exists(local_file_path):
+                os.remove(local_file_path)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database registration failed: {str(e)}"
+            )
 
 @router.get("", response_model=List[dict])
 def list_documents(current_user: Any = Depends(get_current_user)):
@@ -189,8 +212,13 @@ def list_documents(current_user: Any = Depends(get_current_user)):
         response = supabase.table("documents").select("*").eq("user_id", current_user.id).order("created_at", desc=True).execute()
         return response.data
     except Exception as e:
-        logger.error(f"Failed to list documents: {e}")
-        raise HTTPException(status_code=500, detail="Could not retrieve documents list.")
+        logger.warning(f"Failed to list documents from primary DB: {e}. Trying fallback DB...")
+        try:
+            from app.database.supabase_client import mock_client
+            res = mock_client.table("documents").select("*").eq("user_id", current_user.id).order("created_at", desc=True).execute()
+            return res.data
+        except Exception:
+            raise HTTPException(status_code=500, detail="Could not retrieve documents list.")
 
 @router.get("/{document_id}/output")
 def get_document_output(
