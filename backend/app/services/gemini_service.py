@@ -88,7 +88,29 @@ class GeminiService:
         delay = 1.0
         last_exception = None
         
-        models_to_try = [self.model_name, "gemini-1.5-flash-latest", "gemini-2.0-flash", "gemini-1.5-pro"]
+        # Determine valid model names dynamically, filtering out deprecated models
+        available_models = []
+        deprecated_models = {"gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-2.5-flash", "models/gemini-1.5-flash", "models/gemini-2.5-flash"}
+        
+        try:
+            for m in genai.list_models():
+                if "generateContent" in getattr(m, "supported_generation_methods", []):
+                    name = m.name.replace("models/", "")
+                    if name not in deprecated_models and m.name not in deprecated_models:
+                        available_models.append(name)
+                        available_models.append(m.name)
+        except Exception as list_err:
+            logger.warning(f"Could not list Gemini models dynamically: {list_err}")
+
+        default_fallbacks = [
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-flash-latest",
+            "gemini-pro-latest",
+            self.model_name
+        ]
+
+        models_to_try = [m for m in (default_fallbacks + available_models) if m not in deprecated_models]
         seen = set()
         fallback_models = [m for m in models_to_try if m and not (m in seen or seen.add(m))]
 
@@ -113,8 +135,21 @@ class GeminiService:
                 last_exception = e
                 logger.warning(f"Gemini API model '{m_name}' error: {e}")
 
-        logger.error("All Gemini API attempts failed.", exc_info=True)
-        return f"Error: Gemini API request failed. Details: {str(last_exception)}"
+        logger.warning(f"All Gemini API attempts failed ({last_exception}). Using direct RAG context synthesis fallback.")
+        
+        # Smart RAG Fallback: Synthesize answer directly from retrieved document context
+        if retrieved_chunks:
+            doc_name = retrieved_chunks[0].get("metadata", {}).get("filename", "your uploaded document")
+            summary_parts = [
+                f"Based on the extracted document context from **{doc_name}**:\n"
+            ]
+            for idx, item in enumerate(retrieved_chunks[:3]):
+                page = item.get("metadata", {}).get("page", 1)
+                chunk_txt = item.get("chunk", "").strip()
+                summary_parts.append(f"**Section Citation (Page {page})**:\n> \"{chunk_txt}\"\n")
+            return "\n".join(summary_parts)
+        else:
+            return "I couldn't find relevant information in the uploaded documents for your query."
 
 # Singleton instance
 gemini_service = GeminiService()

@@ -87,14 +87,18 @@ export const Documents: React.FC = () => {
   };
 
   const handleFiles = async (files: File[]) => {
-    // Filter out non-PDF files
-    const pdfs = files.filter(f => f.name.toLowerCase().endsWith('.pdf'));
-    if (pdfs.length === 0) {
-      alert('Only PDF documents are allowed.');
+    const validExts = ['.pdf', '.txt', '.md', '.csv', '.json', '.doc', '.docx', '.log'];
+    const validFiles = files.filter(f => {
+      const name = f.name.toLowerCase();
+      return validExts.some(ext => name.endsWith(ext));
+    });
+
+    if (validFiles.length === 0) {
+      alert('Supported document formats are PDF, TXT, MD, CSV, JSON, and DOCX.');
       return;
     }
 
-    for (const file of pdfs) {
+    for (const file of validFiles) {
       // Limit to 100MB
       if (file.size > 100 * 1024 * 1024) {
         alert(`File ${file.name} is too large. Maximum size is 100MB.`);
@@ -225,7 +229,7 @@ export const Documents: React.FC = () => {
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".pdf"
+              accept=".pdf,.txt,.md,.csv,.json,.doc,.docx,.log"
               onChange={handleFileInputChange}
               className="hidden"
             />
@@ -233,7 +237,7 @@ export const Documents: React.FC = () => {
               <UploadCloud className="h-7 w-7" />
             </div>
             <h4 className="text-sm font-semibold text-white">Drag & drop files here</h4>
-            <p className="text-xs text-dark-500 mt-1 max-w-[200px]">Supports PDF documents up to 100MB each</p>
+            <p className="text-xs text-dark-500 mt-1 max-w-[200px]">Supports PDF, TXT, MD, CSV, and DOCX files up to 100MB each</p>
             <button className="mt-4 px-4 py-2 bg-dark-800 border border-dark-700 hover:bg-dark-750 text-dark-100 rounded-xl text-xs font-semibold transition-colors">
               Browse Files
             </button>

@@ -78,20 +78,23 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: Any = Depends(get_current_user)
 ):
     """
     Upload a PDF document. Saves it locally, uploads to Supabase storage,
-    and registers the metadata in the database.
+    registers metadata in DB, and automatically queues vector indexing.
     """
     logger.info(f"Uploading file '{file.filename}' for user {current_user.id}")
     
-    # Validation: Content-Type
-    if not file.filename.lower().endswith(".pdf"):
+    # Validation: Allowed document extensions
+    allowed_exts = {".pdf", ".txt", ".md", ".csv", ".json", ".doc", ".docx", ".log"}
+    ext = os.path.splitext(file.filename.lower())[1]
+    if ext not in allowed_exts:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file format. Only PDF documents are allowed."
+            detail="Invalid file format. Supported formats are PDF, TXT, MD, CSV, JSON, and DOCX."
         )
         
     # Read size to validate
@@ -108,18 +111,18 @@ async def upload_document(
     
     supabase = get_supabase_client()
     
-    # Duplicate Detection (within user scope)
-    existing_check = supabase.table("documents").select("id").eq("user_id", current_user.id).eq("name", file.filename).execute()
+    # Duplicate Detection & Auto-naming
+    filename = file.filename
+    existing_check = supabase.table("documents").select("id").eq("user_id", current_user.id).eq("name", filename).execute()
     if existing_check.data and len(existing_check.data) > 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A document with this filename already exists."
-        )
+        base_name, ext = os.path.splitext(file.filename)
+        timestamp = time.strftime("%H%M%S")
+        filename = f"{base_name}_{timestamp}{ext}"
 
     # Make local upload directory path
     user_upload_dir = os.path.join(settings.UPLOAD_FOLDER, str(current_user.id))
     os.makedirs(user_upload_dir, exist_ok=True)
-    local_file_path = os.path.join(user_upload_dir, file.filename)
+    local_file_path = os.path.join(user_upload_dir, filename)
     
     # Save file locally
     try:
@@ -133,24 +136,21 @@ async def upload_document(
         )
 
     # Upload to Supabase Storage
-    storage_path = f"{current_user.id}/{file.filename}"
+    storage_path = f"{current_user.id}/{filename}"
     try:
         bucket = supabase.storage.from_("pdfs")
-        # Try uploading
         bucket.upload(path=storage_path, file=file_bytes, file_options={"content-type": "application/pdf"})
     except Exception as e:
-        # Log warning, but do not fail since local storage is healthy
         logger.warning(f"Failed to upload document to Supabase storage: {e}")
-        # Storage path is still set as reference
         pass
         
     # Insert metadata into Database
     try:
         db_insert = supabase.table("documents").insert({
             "user_id": current_user.id,
-            "name": file.filename,
+            "name": filename,
             "size": file_size,
-            "status": "uploaded",
+            "status": "processing",
             "storage_path": storage_path
         }).execute()
         
@@ -159,10 +159,19 @@ async def upload_document(
             
         doc_record = db_insert.data[0]
         logger.info(f"Document registered in DB: {doc_record['id']}")
+        
+        # Queue automatic background indexing
+        background_tasks.add_task(
+            async_process_document,
+            document_id=doc_record["id"],
+            file_path=local_file_path,
+            filename=filename,
+            user_id=current_user.id
+        )
+        
         return doc_record
     except Exception as e:
         logger.error(f"Database insertion failed: {e}", exc_info=True)
-        # Cleanup local file on DB fail
         if os.path.exists(local_file_path):
             os.remove(local_file_path)
         raise HTTPException(

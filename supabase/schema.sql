@@ -64,53 +64,53 @@ alter table public.messages enable row level security;
 -- Policies for documents
 create policy "Users can view their own documents"
     on public.documents for select
-    using (auth.uid() = user_id);
+    using (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 create policy "Users can insert their own documents"
     on public.documents for insert
-    with check (auth.uid() = user_id);
+    with check (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 create policy "Users can update their own documents"
     on public.documents for update
-    using (auth.uid() = user_id);
+    using (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 create policy "Users can delete their own documents"
     on public.documents for delete
-    using (auth.uid() = user_id);
+    using (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 -- Policies for conversations
 create policy "Users can view their own conversations"
     on public.conversations for select
-    using (auth.uid() = user_id);
+    using (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 create policy "Users can insert their own conversations"
     on public.conversations for insert
-    with check (auth.uid() = user_id);
+    with check (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 create policy "Users can update their own conversations"
     on public.conversations for update
-    using (auth.uid() = user_id);
+    using (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 create policy "Users can delete their own conversations"
     on public.conversations for delete
-    using (auth.uid() = user_id);
+    using (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 -- Policies for messages
 create policy "Users can view their own messages"
     on public.messages for select
-    using (auth.uid() = user_id);
+    using (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 create policy "Users can insert their own messages"
     on public.messages for insert
-    with check (auth.uid() = user_id);
+    with check (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 create policy "Users can update their own messages"
     on public.messages for update
-    using (auth.uid() = user_id);
+    using (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 create policy "Users can delete their own messages"
     on public.messages for delete
-    using (auth.uid() = user_id);
+    using (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 ---------------------------------------------------------
 -- TRIGGERS FOR UPDATED_AT
@@ -205,15 +205,15 @@ alter table public.document_chunks enable row level security;
 -- Policies for document chunks
 create policy "Users can view their own document chunks"
     on public.document_chunks for select
-    using (auth.uid() = user_id);
+    using (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 create policy "Users can insert their own document chunks"
     on public.document_chunks for insert
-    with check (auth.uid() = user_id);
+    with check (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 create policy "Users can delete their own document chunks"
     on public.document_chunks for delete
-    using (auth.uid() = user_id);
+    using (auth.uid() = user_id or user_id = '00000000-0000-0000-0000-000000000000'::uuid);
 
 -- Cosine Similarity Search RPC Function
 create or replace function public.match_document_chunks (

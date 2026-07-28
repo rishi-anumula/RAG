@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     
     # RAG Settings
     EMBEDDING_MODEL_NAME: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
-    GEMINI_MODEL_NAME: str = Field(default="gemini-1.5-flash")
+    GEMINI_MODEL_NAME: str = Field(default="gemini-2.0-flash")
     USE_LOCAL_EMBEDDINGS: bool = Field(default=False)
 
     from pydantic import field_validator

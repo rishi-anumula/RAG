@@ -31,6 +31,26 @@ class PDFProcessingService:
         chunks_data = []
         chunk_counter = 0
 
+        # Support plain text, md, csv, json document files directly
+        ext = os.path.splitext(file_path.lower())[1]
+        if ext in [".txt", ".md", ".csv", ".json", ".log"]:
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    full_text = f.read()
+                if full_text.strip():
+                    text_chunks = self.splitter.split_text(full_text)
+                    for idx, chunk_txt in enumerate(text_chunks):
+                        if chunk_txt.strip():
+                            chunks_data.append({
+                                "text": chunk_txt.strip(),
+                                "page": 1,
+                                "chunk_index": idx
+                            })
+                    logger.info(f"Text file processing finished. Generated {len(chunks_data)} chunks.")
+                    return chunks_data
+            except Exception as txt_err:
+                logger.warning(f"Failed reading as plain text file: {txt_err}")
+
         try:
             reader = PdfReader(file_path)
             num_pages = len(reader.pages)

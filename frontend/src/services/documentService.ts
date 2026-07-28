@@ -15,9 +15,6 @@ export const documentService = {
     formData.append('file', file);
 
     const response = await api.post<Document>('/documents/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
