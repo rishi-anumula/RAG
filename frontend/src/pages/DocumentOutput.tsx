@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { jsPDF } from 'jspdf';
 import { 
   ArrowLeft, 
   FileText, 
@@ -78,298 +79,167 @@ export const DocumentOutput: React.FC = () => {
   const handleDownloadPdf = () => {
     if (!document || chunks.length === 0) return;
 
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Pop-up blocked! Please allow pop-ups for this site to download the PDF.');
-      return;
+    try {
+      const pdf = new jsPDF();
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const margin = 15;
+      const maxLineWidth = pageWidth - margin * 2;
+
+      // Header Banner
+      pdf.setFillColor(99, 102, 241);
+      pdf.rect(0, 0, pageWidth, 26, 'F');
+
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('AI KNOWLEDGE BASE — FULL DOCUMENT REPORT', margin, 17);
+
+      // Metadata Overview
+      let y = 38;
+      pdf.setFontSize(12);
+      pdf.setTextColor(15, 23, 42);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`Document: ${document.name}`, margin, y);
+
+      y += 7;
+      pdf.setFontSize(9.5);
+      pdf.setTextColor(100, 116, 139);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Size: ${formatFileSize(document.size)}  |  Total Chunks: ${chunks.length}  |  Total Pages: ${pageNumbers.length}  |  Status: ${document.status.toUpperCase()}`, margin, y);
+
+      y += 10;
+      pdf.setDrawColor(226, 232, 240);
+      pdf.setLineWidth(0.5);
+      pdf.line(margin, y, pageWidth - margin, y);
+
+      y += 10;
+
+      // Chunks Iteration
+      chunks.forEach((chunk) => {
+        if (y > 250) {
+          pdf.addPage();
+          y = 20;
+        }
+
+        // Chunk Badge
+        pdf.setFillColor(241, 245, 249);
+        pdf.rect(margin, y, maxLineWidth, 8, 'F');
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(71, 85, 105);
+        pdf.text(`PAGE ${chunk.page_number}  —  CHUNK #${chunk.chunk_number + 1} (${chunk.content.length} chars)`, margin + 4, y + 5.5);
+
+        y += 12;
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(30, 41, 59);
+
+        const lines = pdf.splitTextToSize(chunk.content, maxLineWidth);
+        lines.forEach((line: string) => {
+          if (y > 275) {
+            pdf.addPage();
+            y = 20;
+          }
+          pdf.text(line, margin, y);
+          y += 5;
+        });
+
+        y += 8;
+      });
+
+      // Footer
+      const pageCount = pdf.internal.pages.length - 1;
+      for (let i = 1; i <= pageCount; i++) {
+        pdf.setPage(i);
+        pdf.setFontSize(8);
+        pdf.setTextColor(148, 163, 184);
+        pdf.text(`Generated on ${new Date().toLocaleDateString()} — Page ${i} of ${pageCount}`, margin, 287);
+      }
+
+      const safeDocName = document.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      pdf.save(`${safeDocName}_Summary_Report.pdf`);
+    } catch (err) {
+      console.error('Failed to generate full document PDF:', err);
+      alert('Failed to generate PDF summary file.');
     }
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${document.name} - Extracted Output Summary</title>
-          <style>
-            @page { size: A4; margin: 15mm; }
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-              color: #0f172a;
-              line-height: 1.6;
-              padding: 0;
-              margin: 0;
-            }
-            .header {
-              border-bottom: 2px solid #6366f1;
-              padding-bottom: 12px;
-              margin-bottom: 20px;
-            }
-            .title {
-              font-size: 22px;
-              font-weight: 800;
-              color: #0f172a;
-              margin: 0 0 4px 0;
-            }
-            .subtitle {
-              font-size: 12px;
-              color: #64748b;
-              margin: 0;
-            }
-            .meta-grid {
-              display: grid;
-              grid-template-columns: repeat(4, 1fr);
-              gap: 10px;
-              margin-bottom: 20px;
-              background-color: #f8fafc;
-              padding: 12px;
-              border-radius: 8px;
-              border: 1px solid #e2e8f0;
-            }
-            .meta-item {
-              display: flex;
-              flex-direction: column;
-            }
-            .meta-label {
-              font-size: 9px;
-              text-transform: uppercase;
-              font-weight: 700;
-              color: #64748b;
-            }
-            .meta-value {
-              font-size: 12px;
-              font-weight: 700;
-              color: #0f172a;
-              margin-top: 2px;
-            }
-            .section-title {
-              font-size: 15px;
-              font-weight: 700;
-              color: #4f46e5;
-              margin: 20px 0 10px 0;
-              border-bottom: 1px solid #e2e8f0;
-              padding-bottom: 4px;
-            }
-            .chunk-card {
-              background: #ffffff;
-              border: 1px solid #cbd5e1;
-              border-radius: 6px;
-              padding: 12px;
-              margin-bottom: 12px;
-              page-break-inside: avoid;
-            }
-            .chunk-header {
-              display: flex;
-              justify-content: space-between;
-              font-size: 10px;
-              font-weight: 700;
-              color: #475569;
-              margin-bottom: 6px;
-              background: #f1f5f9;
-              padding: 4px 8px;
-              border-radius: 4px;
-            }
-            .chunk-content {
-              font-size: 11px;
-              color: #334155;
-              white-space: pre-wrap;
-            }
-            .footer {
-              margin-top: 25px;
-              font-size: 9px;
-              color: #94a3b8;
-              text-align: center;
-              border-top: 1px solid #e2e8f0;
-              padding-top: 8px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1 class="title">${document.name}</h1>
-            <p class="subtitle">AI Knowledge Base RAG Search — Processed Document Output Report</p>
-          </div>
-
-          <div class="meta-grid">
-            <div class="meta-item">
-              <span class="meta-label">File Size</span>
-              <span class="meta-value">${formatFileSize(document.size)}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Total Chunks</span>
-              <span class="meta-value">${chunks.length} Chunks</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Total Pages</span>
-              <span class="meta-value">${pageNumbers.length} Pages</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Status</span>
-              <span class="meta-value" style="color: #059669; text-transform: uppercase;">${document.status}</span>
-            </div>
-          </div>
-
-          <h2 class="section-title">Extracted Document Output Content</h2>
-
-          ${chunks.map((c) => `
-            <div class="chunk-card">
-              <div class="chunk-header">
-                <span>PAGE ${c.page_number} — CHUNK #${c.chunk_number + 1}</span>
-                <span>${c.content.length} characters</span>
-              </div>
-              <div class="chunk-content">${c.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
-            </div>
-          `).join('')}
-
-          <div class="footer">
-            Generated on ${new Date().toLocaleString()} — AI Knowledge Base Search System
-          </div>
-
-          <script>
-            window.onload = function() {
-              window.print();
-            };
-          </script>
-        </body>
-      </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
   };
 
   const handleDownloadSingleChunkPdf = (chunk: ChunkItem) => {
     if (!document) return;
 
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Pop-up blocked! Please allow pop-ups for this site to download the chunk PDF.');
-      return;
+    try {
+      const pdf = new jsPDF();
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const margin = 15;
+      const maxLineWidth = pageWidth - margin * 2;
+
+      // Primary Header
+      pdf.setFillColor(99, 102, 241);
+      pdf.rect(0, 0, pageWidth, 24, 'F');
+
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('AI KNOWLEDGE BASE — CHUNK REPORT', margin, 15);
+
+      // Metadata Table
+      let y = 35;
+      pdf.setFontSize(11);
+      pdf.setTextColor(15, 23, 42);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`Document: ${document.name}`, margin, y);
+
+      y += 7;
+      pdf.setFontSize(9);
+      pdf.setTextColor(100, 116, 139);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Page Number: ${chunk.page_number}  |  Chunk Index: #${chunk.chunk_number + 1}  |  Length: ${chunk.content.length} characters`, margin, y);
+
+      y += 10;
+      pdf.setDrawColor(226, 232, 240);
+      pdf.setLineWidth(0.5);
+      pdf.line(margin, y, pageWidth - margin, y);
+
+      // Content Title
+      y += 10;
+      pdf.setFontSize(11);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(79, 70, 229);
+      pdf.text('EXTRACTED TEXT CONTENT:', margin, y);
+
+      // Content Body
+      y += 8;
+      pdf.setFontSize(9.5);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(30, 41, 59);
+
+      const splitText = pdf.splitTextToSize(chunk.content, maxLineWidth);
+      
+      splitText.forEach((line: string) => {
+        if (y > 275) {
+          pdf.addPage();
+          y = 20;
+        }
+        pdf.text(line, margin, y);
+        y += 5.5;
+      });
+
+      // Footer
+      const pageCount = pdf.internal.pages.length - 1;
+      for (let i = 1; i <= pageCount; i++) {
+        pdf.setPage(i);
+        pdf.setFontSize(8);
+        pdf.setTextColor(148, 163, 184);
+        pdf.text(`Generated on ${new Date().toLocaleDateString()} — Page ${i} of ${pageCount}`, margin, 287);
+      }
+
+      const safeDocName = document.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `${safeDocName}_p${chunk.page_number}_chunk${chunk.chunk_number + 1}.pdf`;
+      pdf.save(filename);
+    } catch (err) {
+      console.error('Failed to generate chunk PDF:', err);
+      alert('Failed to generate PDF file.');
     }
-
-    const chunkTitle = `${document.name} - Page ${chunk.page_number} Chunk ${chunk.chunk_number + 1}`;
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${chunkTitle}</title>
-          <style>
-            @page { size: A4; margin: 15mm; }
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-              color: #0f172a;
-              line-height: 1.6;
-              padding: 0;
-              margin: 0;
-            }
-            .header {
-              border-bottom: 2px solid #6366f1;
-              padding-bottom: 12px;
-              margin-bottom: 20px;
-            }
-            .title {
-              font-size: 20px;
-              font-weight: 800;
-              color: #0f172a;
-              margin: 0 0 4px 0;
-            }
-            .subtitle {
-              font-size: 12px;
-              color: #64748b;
-              margin: 0;
-            }
-            .meta-grid {
-              display: grid;
-              grid-template-columns: repeat(3, 1fr);
-              gap: 10px;
-              margin-bottom: 20px;
-              background-color: #f8fafc;
-              padding: 12px;
-              border-radius: 8px;
-              border: 1px solid #e2e8f0;
-            }
-            .meta-item {
-              display: flex;
-              flex-direction: column;
-            }
-            .meta-label {
-              font-size: 9px;
-              text-transform: uppercase;
-              font-weight: 700;
-              color: #64748b;
-            }
-            .meta-value {
-              font-size: 12px;
-              font-weight: 700;
-              color: #0f172a;
-              margin-top: 2px;
-            }
-            .section-title {
-              font-size: 14px;
-              font-weight: 700;
-              color: #4f46e5;
-              margin: 20px 0 10px 0;
-              border-bottom: 1px solid #e2e8f0;
-              padding-bottom: 4px;
-            }
-            .chunk-box {
-              background: #f8fafc;
-              border: 1px solid #cbd5e1;
-              border-radius: 6px;
-              padding: 16px;
-              font-size: 12px;
-              color: #1e293b;
-              white-space: pre-wrap;
-            }
-            .footer {
-              margin-top: 30px;
-              font-size: 9px;
-              color: #94a3b8;
-              text-align: center;
-              border-top: 1px solid #e2e8f0;
-              padding-top: 8px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1 class="title">${document.name}</h1>
-            <p class="subtitle">Extracted Segment Report — Page ${chunk.page_number} | Chunk #${chunk.chunk_number + 1}</p>
-          </div>
-
-          <div class="meta-grid">
-            <div class="meta-item">
-              <span class="meta-label">Page Number</span>
-              <span class="meta-value">Page ${chunk.page_number}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Chunk Index</span>
-              <span class="meta-value">Chunk #${chunk.chunk_number + 1}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Length</span>
-              <span class="meta-value">${chunk.content.length} Characters</span>
-            </div>
-          </div>
-
-          <h2 class="section-title">Chunk Extracted Text</h2>
-
-          <div class="chunk-box">${chunk.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
-
-          <div class="footer">
-            Generated on ${new Date().toLocaleString()} — AI Knowledge Base Search System
-          </div>
-
-          <script>
-            window.onload = function() {
-              window.print();
-            };
-          </script>
-        </body>
-      </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
   };
 
   // Filter chunks based on search query and selected page
