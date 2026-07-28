@@ -25,6 +25,6 @@ services:
       # Avoid mounting node_modules from host to prevent OS-level binary mismatch
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=https://rag-2qr1.onrender.com
     command: sh -c "npm install && npm run dev -- --host"
     restart: unless-stopped
