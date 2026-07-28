@@ -183,6 +183,47 @@ def list_documents(current_user: Any = Depends(get_current_user)):
         logger.error(f"Failed to list documents: {e}")
         raise HTTPException(status_code=500, detail="Could not retrieve documents list.")
 
+@router.get("/{document_id}/output")
+def get_document_output(
+    document_id: str,
+    current_user: Any = Depends(get_current_user)
+):
+    """
+    Get detailed output, page chunks, vector info, and extracted content for a specific document.
+    """
+    supabase = get_supabase_client()
+    
+    db_check = supabase.table("documents").select("*").eq("id", document_id).eq("user_id", current_user.id).execute()
+    if not db_check.data:
+        raise HTTPException(status_code=404, detail="Document not found.")
+        
+    doc_record = db_check.data[0]
+    chunks_res = supabase.table("document_chunks").select("*").eq("document_id", document_id).eq("user_id", current_user.id).execute()
+    chunks = chunks_res.data or []
+    
+    if not chunks:
+        user_upload_dir = os.path.join(settings.UPLOAD_FOLDER, str(current_user.id))
+        local_file_path = os.path.join(user_upload_dir, doc_record["name"])
+        if os.path.exists(local_file_path):
+            try:
+                extracted = pdf_service.extract_and_chunk(local_file_path)
+                chunks = [{
+                    "id": f"preview-{c['chunk_index']}",
+                    "document_id": document_id,
+                    "page_number": c["page"],
+                    "chunk_number": c["chunk_index"],
+                    "content": c["text"],
+                    "filename": doc_record["name"]
+                } for c in extracted]
+            except Exception as e:
+                logger.warning(f"Could not extract preview text: {e}")
+
+    return {
+        "document": doc_record,
+        "chunk_count": len(chunks),
+        "chunks": chunks
+    }
+
 @router.post("/process", status_code=status.HTTP_202_ACCEPTED)
 def process_document(
     payload: ProcessRequest,

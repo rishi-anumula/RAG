@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { documentService } from '../services/documentService';
 import type { Document } from '../types';
 import { 
@@ -9,7 +10,8 @@ import {
   AlertCircle, 
   Edit3, 
   RefreshCw,
-  Search
+  Search,
+  Eye
 } from 'lucide-react';
 
 export const Documents: React.FC = () => {
@@ -354,11 +356,21 @@ export const Documents: React.FC = () => {
                       <td className="py-4 text-right pr-2">
                         <div className="flex items-center justify-end space-x-1">
                           
+                          {/* View Output Page */}
+                          <Link
+                            to={`/documents/${doc.id}/output`}
+                            className="p-2 bg-brand-500/10 hover:bg-brand-500/20 text-brand-400 rounded-lg transition-colors border border-brand-500/15 flex items-center space-x-1 text-xs font-semibold"
+                            title="View Extracted Output Page"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">View Output</span>
+                          </Link>
+
                           {/* Process trigger */}
                           {doc.status === 'uploaded' && (
                             <button
                               onClick={() => handleProcess(doc.id)}
-                              className="p-2 hover:bg-brand-600/10 hover:text-brand-400 text-dark-400 rounded-lg transition-colors"
+                              className="p-2 hover:bg-amber-500/10 hover:text-amber-400 text-dark-400 rounded-lg transition-colors"
                               title="Process & Index PDF"
                             >
                               <Play className="h-4 w-4" />

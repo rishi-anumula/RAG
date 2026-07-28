@@ -45,5 +45,21 @@ export const documentService = {
       name: newName,
     });
     return response.data;
+  },
+
+  async getOutput(documentId: string): Promise<{
+    document: Document;
+    chunk_count: number;
+    chunks: Array<{
+      id: string;
+      document_id: string;
+      page_number: number;
+      chunk_number: number;
+      content: string;
+      filename: string;
+    }>;
+  }> {
+    const response = await api.get(`/documents/${documentId}/output`);
+    return response.data;
   }
 };

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './hooks/useAuth';
 import { Dashboard } from './pages/Dashboard';
 import { Documents } from './pages/Documents';
+import { DocumentOutput } from './pages/DocumentOutput';
 import { Chat } from './pages/Chat';
 import { Settings } from './pages/Settings';
 import { DashboardLayout } from './layouts/DashboardLayout';
@@ -28,6 +29,14 @@ function App() {
             element={
               <DashboardLayout>
                 <Documents />
+              </DashboardLayout>
+            }
+          />
+          <Route
+            path="/documents/:id/output"
+            element={
+              <DashboardLayout>
+                <DocumentOutput />
               </DashboardLayout>
             }
           />
