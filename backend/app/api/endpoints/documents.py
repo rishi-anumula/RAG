@@ -14,8 +14,8 @@ from app.vectorstore.supabase_vector_client import add_document_chunks, delete_d
 logger = get_logger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-# Max PDF Size: 15 MB
-MAX_FILE_SIZE = 15 * 1024 * 1024
+# Max PDF Size: 100 MB
+MAX_FILE_SIZE = 100 * 1024 * 1024
 
 class ProcessRequest(BaseModel):
     document_id: str
@@ -100,7 +100,7 @@ async def upload_document(
     if file_size > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File is too large. Maximum allowed size is 15MB."
+            detail="File is too large. Maximum allowed size is 100MB."
         )
         
     # Reset seek pointer
