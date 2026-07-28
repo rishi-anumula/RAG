@@ -88,32 +88,30 @@ class GeminiService:
         delay = 1.0
         last_exception = None
         
-        for attempt in range(max_retries):
+        models_to_try = [self.model_name, "gemini-1.5-flash-latest", "gemini-2.0-flash", "gemini-1.5-pro"]
+        seen = set()
+        fallback_models = [m for m in models_to_try if m and not (m in seen or seen.add(m))]
+
+        for m_name in fallback_models:
             try:
                 start_time = time.time()
-                logger.info(f"Sending prompt to Gemini (Attempt {attempt + 1}/{max_retries}). Query: {query[:50]}...")
+                logger.info(f"Sending prompt to Gemini model '{m_name}'. Query: {query[:50]}...")
                 
-                model = genai.GenerativeModel(self.model_name)
-                # Call Gemini
+                model = genai.GenerativeModel(m_name)
                 response = model.generate_content(
                     prompt,
                     generation_config=genai.types.GenerationConfig(
-                        temperature=0.0, # Temperature 0 to avoid hallucinations
+                        temperature=0.0,
                     )
                 )
                 
                 duration = time.time() - start_time
-                logger.info(f"Gemini responded in {duration:.2f} seconds.")
-                return response.text.strip()
-                
+                if response and hasattr(response, "text") and response.text:
+                    logger.info(f"Gemini model '{m_name}' responded in {duration:.2f} seconds.")
+                    return response.text.strip()
             except Exception as e:
                 last_exception = e
-                logger.warning(f"Gemini API error on attempt {attempt + 1}: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(delay)
-                    delay *= backoff_factor
-                else:
-                    break
+                logger.warning(f"Gemini API model '{m_name}' error: {e}")
 
         logger.error("All Gemini API attempts failed.", exc_info=True)
         return f"Error: Gemini API request failed. Details: {str(last_exception)}"

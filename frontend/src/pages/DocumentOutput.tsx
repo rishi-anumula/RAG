@@ -12,7 +12,8 @@ import {
   MessageSquare, 
   AlertCircle,
   Cpu,
-  BookOpen
+  BookOpen,
+  Download
 } from 'lucide-react';
 import { documentService } from '../services/documentService';
 import type { Document } from '../types';
@@ -74,6 +75,167 @@ export const DocumentOutput: React.FC = () => {
   // Get unique page numbers
   const pageNumbers = Array.from(new Set(chunks.map(c => c.page_number))).sort((a, b) => a - b);
 
+  const handleDownloadPdf = () => {
+    if (!document || chunks.length === 0) return;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Pop-up blocked! Please allow pop-ups for this site to download the PDF.');
+      return;
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${document.name} - Extracted Output Summary</title>
+          <style>
+            @page { size: A4; margin: 15mm; }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+              color: #0f172a;
+              line-height: 1.6;
+              padding: 0;
+              margin: 0;
+            }
+            .header {
+              border-bottom: 2px solid #6366f1;
+              padding-bottom: 12px;
+              margin-bottom: 20px;
+            }
+            .title {
+              font-size: 22px;
+              font-weight: 800;
+              color: #0f172a;
+              margin: 0 0 4px 0;
+            }
+            .subtitle {
+              font-size: 12px;
+              color: #64748b;
+              margin: 0;
+            }
+            .meta-grid {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 10px;
+              margin-bottom: 20px;
+              background-color: #f8fafc;
+              padding: 12px;
+              border-radius: 8px;
+              border: 1px solid #e2e8f0;
+            }
+            .meta-item {
+              display: flex;
+              flex-direction: column;
+            }
+            .meta-label {
+              font-size: 9px;
+              text-transform: uppercase;
+              font-weight: 700;
+              color: #64748b;
+            }
+            .meta-value {
+              font-size: 12px;
+              font-weight: 700;
+              color: #0f172a;
+              margin-top: 2px;
+            }
+            .section-title {
+              font-size: 15px;
+              font-weight: 700;
+              color: #4f46e5;
+              margin: 20px 0 10px 0;
+              border-bottom: 1px solid #e2e8f0;
+              padding-bottom: 4px;
+            }
+            .chunk-card {
+              background: #ffffff;
+              border: 1px solid #cbd5e1;
+              border-radius: 6px;
+              padding: 12px;
+              margin-bottom: 12px;
+              page-break-inside: avoid;
+            }
+            .chunk-header {
+              display: flex;
+              justify-content: space-between;
+              font-size: 10px;
+              font-weight: 700;
+              color: #475569;
+              margin-bottom: 6px;
+              background: #f1f5f9;
+              padding: 4px 8px;
+              border-radius: 4px;
+            }
+            .chunk-content {
+              font-size: 11px;
+              color: #334155;
+              white-space: pre-wrap;
+            }
+            .footer {
+              margin-top: 25px;
+              font-size: 9px;
+              color: #94a3b8;
+              text-align: center;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 8px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1 class="title">${document.name}</h1>
+            <p class="subtitle">AI Knowledge Base RAG Search — Processed Document Output Report</p>
+          </div>
+
+          <div class="meta-grid">
+            <div class="meta-item">
+              <span class="meta-label">File Size</span>
+              <span class="meta-value">${formatFileSize(document.size)}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Total Chunks</span>
+              <span class="meta-value">${chunks.length} Chunks</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Total Pages</span>
+              <span class="meta-value">${pageNumbers.length} Pages</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Status</span>
+              <span class="meta-value" style="color: #059669; text-transform: uppercase;">${document.status}</span>
+            </div>
+          </div>
+
+          <h2 class="section-title">Extracted Document Output Content</h2>
+
+          ${chunks.map((c) => `
+            <div class="chunk-card">
+              <div class="chunk-header">
+                <span>PAGE ${c.page_number} — CHUNK #${c.chunk_number + 1}</span>
+                <span>${c.content.length} characters</span>
+              </div>
+              <div class="chunk-content">${c.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+            </div>
+          `).join('')}
+
+          <div class="footer">
+            Generated on ${new Date().toLocaleString()} — AI Knowledge Base Search System
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   // Filter chunks based on search query and selected page
   const filteredChunks = chunks.filter(chunk => {
     const matchesPage = selectedPage === 'all' || chunk.page_number === selectedPage;
@@ -118,7 +280,7 @@ export const DocumentOutput: React.FC = () => {
         </div>
 
         {/* Header Action Buttons */}
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={fetchOutput}
             className="px-3.5 py-2 bg-dark-800 hover:bg-dark-750 text-dark-200 hover:text-white rounded-xl text-xs font-semibold transition-all border border-dark-700 flex items-center space-x-2"
@@ -126,6 +288,17 @@ export const DocumentOutput: React.FC = () => {
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
           </button>
+
+          <button
+            onClick={handleDownloadPdf}
+            disabled={!document || chunks.length === 0}
+            className="px-3.5 py-2 bg-emerald-600/10 hover:bg-emerald-600/20 disabled:opacity-50 text-emerald-400 rounded-xl text-xs font-semibold transition-all border border-emerald-500/20 flex items-center space-x-2"
+            title="Download extracted document summary report as PDF"
+          >
+            <Download className="h-4 w-4" />
+            <span>Download PDF Summary</span>
+          </button>
+
           <Link
             to="/chat"
             className="px-4 py-2 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-500/20 transition-all flex items-center space-x-2"
