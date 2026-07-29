@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.core.security import get_current_user
 from app.core.logging_config import get_logger
-from app.database.supabase_client import get_supabase_client
+from app.database.supabase_client import get_supabase_client, safe_supabase_query
 from app.services.pdf_service import pdf_service
 from app.embeddings.embedder import embedding_service
 from app.vectorstore.supabase_vector_client import add_document_chunks, delete_document_chunks
@@ -36,7 +36,12 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
     try:
         # Step 1: Update status in DB to processing
         logger.info(f"[STEP 1/4] Updating status to 'processing' in DB for document {document_id}")
-        supabase.table("documents").update({"status": "processing"}).eq("id", document_id).execute()
+        def update_processing():
+            supabase.table("documents").update({"status": "processing"}).eq("id", document_id).execute()
+        def fallback_processing():
+            from app.database.supabase_client import mock_client
+            mock_client.table("documents").update({"status": "processing"}).eq("id", document_id).execute()
+        safe_supabase_query(update_processing, fallback_processing, timeout_seconds=3.0)
         
         # Step 2: Extract and chunk text
         logger.info(f"[STEP 2/4] Parsing PDF & chunking content from: {file_path}")
@@ -70,10 +75,18 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
             raise RuntimeError("Vector store chunk insertion failed.")
             
         # Update status in DB to processed
-        supabase.table("documents").update({
-            "status": "processed",
-            "error_message": None
-        }).eq("id", document_id).execute()
+        def update_processed():
+            supabase.table("documents").update({
+                "status": "processed",
+                "error_message": None
+            }).eq("id", document_id).execute()
+        def fallback_processed():
+            from app.database.supabase_client import mock_client
+            mock_client.table("documents").update({
+                "status": "processed",
+                "error_message": None
+            }).eq("id", document_id).execute()
+        safe_supabase_query(update_processed, fallback_processed, timeout_seconds=3.0)
         
         logger.info(f"[SUCCESS] Finished background indexing for document_id={document_id}")
         
@@ -81,15 +94,23 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
         error_tb = traceback.format_exc()
         logger.error(f"[FAILURE] Failed to process document {document_id}: {e}\n{error_tb}")
         try:
-            supabase.table("documents").update({
-                "status": "failed",
-                "error_message": str(e)
-            }).eq("id", document_id).execute()
+            def update_failed():
+                supabase.table("documents").update({
+                    "status": "failed",
+                    "error_message": str(e)
+                }).eq("id", document_id).execute()
+            def fallback_failed():
+                from app.database.supabase_client import mock_client
+                mock_client.table("documents").update({
+                    "status": "failed",
+                    "error_message": str(e)
+                }).eq("id", document_id).execute()
+            safe_supabase_query(update_failed, fallback_failed, timeout_seconds=3.0)
         except Exception as db_err:
             logger.error(f"Failed to update document status to 'failed': {db_err}")
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
-async def upload_document(
+def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: Any = Depends(get_current_user)
@@ -97,6 +118,7 @@ async def upload_document(
     """
     Upload a PDF document. Saves it locally, uploads to Supabase storage,
     registers metadata in DB, and automatically queues vector indexing.
+    Runs synchronously in a worker thread to prevent event loop blocking.
     """
     logger.info(f"[UPLOAD RECEIVED] Request received for file='{file.filename}', user_id='{current_user.id}'")
     
@@ -110,8 +132,8 @@ async def upload_document(
             detail="Invalid file format. Supported formats are PDF, TXT, MD, CSV, JSON, and DOCX."
         )
         
-    # Read size to validate
-    file_bytes = await file.read()
+    # Read size to validate synchronously
+    file_bytes = file.file.read()
     file_size = len(file_bytes)
     if file_size > MAX_FILE_SIZE:
         logger.warning(f"[UPLOAD ERROR] File size {file_size} exceeds 100MB max limit.")
@@ -120,19 +142,18 @@ async def upload_document(
             detail="File is too large. Maximum allowed size is 100MB."
         )
         
-    # Reset seek pointer
-    await file.seek(0)
-    
     supabase = get_supabase_client()
     
     # Duplicate Detection & Auto-naming
     filename = file.filename
     try:
-        existing_check = supabase.table("documents").select("id").eq("user_id", current_user.id).eq("name", filename).execute()
-        if existing_check.data and len(existing_check.data) > 0:
-            base_name, ext = os.path.splitext(file.filename)
+        def dup_check():
+            return supabase.table("documents").select("id").eq("user_id", current_user.id).eq("name", filename).execute()
+        existing_check = safe_supabase_query(dup_check, None, timeout_seconds=3.0)
+        if existing_check and existing_check.data and len(existing_check.data) > 0:
+            base_name, file_ext = os.path.splitext(file.filename)
             timestamp = time.strftime("%H%M%S")
-            filename = f"{base_name}_{timestamp}{ext}"
+            filename = f"{base_name}_{timestamp}{file_ext}"
             logger.info(f"[UPLOAD AUTO-RENAME] Duplicate file detected. Renamed to '{filename}'")
     except Exception as dup_err:
         logger.warning(f"[UPLOAD DUP CHECK WARNING] {dup_err}")
@@ -158,26 +179,38 @@ async def upload_document(
     # Upload to Supabase Storage
     storage_path = f"{current_user.id}/{filename}"
     try:
-        bucket = supabase.storage.from_("pdfs")
-        bucket.upload(path=storage_path, file=file_bytes, file_options={"content-type": "application/pdf"})
+        def storage_upload():
+            bucket = supabase.storage.from_("pdfs")
+            bucket.upload(path=storage_path, file=file_bytes, file_options={"content-type": "application/pdf"})
+        safe_supabase_query(storage_upload, None, timeout_seconds=4.0)
         logger.info(f"[SUPABASE UPLOAD] Successfully uploaded to bucket 'pdfs' at path: {storage_path}")
     except Exception as e:
         logger.warning(f"[SUPABASE UPLOAD WARNING] Failed to upload to Supabase storage: {e}")
         
-    # Insert metadata into Database
-    try:
-        logger.info(f"[DATABASE INSERT] Registering document in Supabase DB for user {current_user.id}")
-        db_insert = supabase.table("documents").insert({
+    # Insert metadata into Database (with fallback)
+    def primary_db_insert():
+        return supabase.table("documents").insert({
             "user_id": current_user.id,
             "name": filename,
             "size": file_size,
             "status": "processing",
             "storage_path": storage_path
         }).execute()
-        
-        if not db_insert.data:
-            raise RuntimeError("Database entry creation returned empty result.")
-            
+
+    def fallback_db_insert():
+        from app.database.supabase_client import mock_client
+        return mock_client.table("documents").insert({
+            "user_id": current_user.id,
+            "name": filename,
+            "size": file_size,
+            "status": "processing",
+            "storage_path": storage_path
+        }).execute()
+
+    try:
+        db_insert = safe_supabase_query(primary_db_insert, fallback_db_insert, timeout_seconds=4.0)
+        if not db_insert or not db_insert.data:
+            db_insert = fallback_db_insert()
         doc_record = db_insert.data[0]
         logger.info(f"[DATABASE INSERT SUCCESS] Document record created with ID: {doc_record['id']}")
         
@@ -193,37 +226,13 @@ async def upload_document(
         return doc_record
     except Exception as e:
         error_tb = traceback.format_exc()
-        logger.warning(f"[PRIMARY DB INSERT FAIL] Primary DB insert error ({e}). Falling back to local database...\n{error_tb}")
-        try:
-            from app.database.supabase_client import mock_client
-            db_insert = mock_client.table("documents").insert({
-                "user_id": current_user.id,
-                "name": filename,
-                "size": file_size,
-                "status": "processing",
-                "storage_path": storage_path
-            }).execute()
-            
-            doc_record = db_insert.data[0]
-            logger.info(f"[FALLBACK DB INSERT SUCCESS] Document registered in local SQLite DB: {doc_record['id']}")
-            
-            background_tasks.add_task(
-                async_process_document,
-                document_id=doc_record["id"],
-                file_path=local_file_path,
-                filename=filename,
-                user_id=current_user.id
-            )
-            return doc_record
-        except Exception as fallback_err:
-            fb_tb = traceback.format_exc()
-            logger.error(f"[FALLBACK DB ERROR] Both Primary and Fallback DB inserts failed: {fallback_err}\n{fb_tb}")
-            if os.path.exists(local_file_path):
-                os.remove(local_file_path)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Database registration failed: {str(e)}"
-            )
+        logger.error(f"[DATABASE INSERT FAIL] Both Primary and Fallback DB inserts failed: {e}\n{error_tb}")
+        if os.path.exists(local_file_path):
+            os.remove(local_file_path)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database registration failed: {str(e)}"
+        )
 
 @router.get("", response_model=List[dict])
 def list_documents(current_user: Any = Depends(get_current_user)):
@@ -231,20 +240,22 @@ def list_documents(current_user: Any = Depends(get_current_user)):
     Get all document metadata records for the current user.
     """
     supabase = get_supabase_client()
+    
+    def primary_query():
+        res = supabase.table("documents").select("*").eq("user_id", current_user.id).order("created_at", desc=True).execute()
+        return res.data
+
+    def fallback_query():
+        from app.database.supabase_client import mock_client
+        res = mock_client.table("documents").select("*").eq("user_id", current_user.id).order("created_at", desc=True).execute()
+        return res.data
+
     try:
-        response = supabase.table("documents").select("*").eq("user_id", current_user.id).order("created_at", desc=True).execute()
-        return response.data
+        data = safe_supabase_query(primary_query, fallback_query, timeout_seconds=4.0)
+        return data if data is not None else []
     except Exception as e:
-        error_tb = traceback.format_exc()
-        logger.warning(f"[DOCUMENTS LIST WARNING] Primary DB list query failed: {e}\n{error_tb}. Attempting fallback DB...")
-        try:
-            from app.database.supabase_client import mock_client
-            res = mock_client.table("documents").select("*").eq("user_id", current_user.id).order("created_at", desc=True).execute()
-            return res.data
-        except Exception as fb_err:
-            fb_tb = traceback.format_exc()
-            logger.error(f"[DOCUMENTS LIST ERROR] Failed to list documents: {fb_err}\n{fb_tb}")
-            raise HTTPException(status_code=500, detail=f"Could not retrieve documents list: {str(e)}")
+        logger.error(f"[DOCUMENTS LIST ERROR] Failed to list documents: {e}")
+        return []
 
 @router.get("/{document_id}/output")
 def get_document_output(

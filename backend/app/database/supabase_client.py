@@ -411,3 +411,25 @@ def get_supabase_client(use_service_role: bool = True) -> Client:
         
     # Return real Supabase Cloud client with service_role / anon key
     return create_client(url, key)
+
+import concurrent.futures
+
+def safe_supabase_query(query_fn, fallback_fn=None, timeout_seconds=4.0):
+    """
+    Executes a primary Supabase Cloud query with a strict timeout.
+    If the query fails or exceeds timeout, falls back to fallback_fn (e.g. SQLite mock DB).
+    """
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(query_fn)
+            return future.result(timeout=timeout_seconds)
+    except Exception as e:
+        logger.warning(f"Primary Supabase query failed or timed out ({e}). Attempting fallback...")
+        if fallback_fn:
+            try:
+                return fallback_fn()
+            except Exception as fb_err:
+                logger.error(f"Fallback query execution failed: {fb_err}")
+                raise fb_err
+        raise e
+
