@@ -36,3 +36,13 @@ root_logger.addHandler(file_handler)
 def get_logger(name: str) -> logging.Logger:
     """Get a configured logger by name."""
     return logging.getLogger(name)
+
+def get_memory_usage_mb() -> float:
+    """Returns current process RAM usage in Megabytes (MB)."""
+    try:
+        import psutil
+        process = psutil.Process(os.getpid())
+        return process.memory_info().rss / (1024 * 1024)
+    except Exception:
+        return 0.0
+

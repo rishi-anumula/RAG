@@ -2,7 +2,7 @@ import time
 import os
 from typing import List
 from app.core.config import settings
-from app.core.logging_config import get_logger
+from app.core.logging_config import get_logger, get_memory_usage_mb
 
 logger = get_logger(__name__)
 
@@ -99,10 +99,11 @@ class EmbeddingService:
             return []
         self.load_model()
         start_time = time.time()
+        ram_before = get_memory_usage_mb()
         try:
             if self.use_fallback:
                 if self.is_mock_key:
-                    logger.info("Using mock batch 384-dimension vector generator (Gemini API key is mock placeholder).")
+                    logger.info(f"Using mock batch 384-dim vector generator ({len(texts)} texts) | RAM: {ram_before:.2f} MB")
                     return [self._mock_vector(t) for t in texts]
 
                 try:
@@ -112,18 +113,24 @@ class EmbeddingService:
                         output_dimensionality=384
                     )
                     embeddings = result['embedding']
-                    logger.info(f"Generated {len(texts)} embeddings via Gemini API in {time.time() - start_time:.4f} seconds.")
+                    ram_after = get_memory_usage_mb()
+                    logger.info(f"Generated {len(texts)} embeddings via Gemini API in {time.time() - start_time:.4f}s | RAM: {ram_after:.2f} MB")
                     return embeddings
                 except Exception as api_err:
                     logger.warning(f"Gemini API batch embed_content failed ({api_err}). Falling back to mock 384-dimension vector generator.")
                     return [self._mock_vector(t) for t in texts]
             else:
                 embeddings = self.model.encode(texts, batch_size=32, show_progress_bar=False, convert_to_numpy=True).tolist()
-                logger.info(f"Generated {len(texts)} embeddings in {time.time() - start_time:.4f} seconds.")
+                ram_after = get_memory_usage_mb()
+                logger.info(f"Generated {len(texts)} embeddings locally in {time.time() - start_time:.4f}s | RAM: {ram_after:.2f} MB")
                 return embeddings
         except Exception as e:
             logger.error(f"Error generating batch embeddings: {e}", exc_info=True)
             return [self._mock_vector(t) for t in texts]
+        finally:
+            import gc
+            gc.collect()
+
 
 # Singleton instance
 embedding_service = EmbeddingService()

@@ -16,8 +16,10 @@ from app.vectorstore.supabase_vector_client import add_document_chunks, delete_d
 logger = get_logger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-# Max PDF Size: 100 MB
-MAX_FILE_SIZE = 100 * 1024 * 1024
+# Max PDF Size: 10 MB (Memory efficiency limit for Render Free Tier)
+MAX_FILE_SIZE = 10 * 1024 * 1024
+# Batch processing size for chunk embedding generation and database insertion
+BATCH_SIZE = 20
 
 class ProcessRequest(BaseModel):
     document_id: str
@@ -27,11 +29,13 @@ class RenameRequest(BaseModel):
 
 def async_process_document(document_id: str, file_path: str, filename: str, user_id: str):
     """
-    Background worker function that extracts text, splits it into chunks,
-    generates embeddings, and indexes them into vector store.
+    Background worker function that extracts text page-by-page, generates embeddings
+    in batches of BATCH_SIZE (20), and indexes them incrementally into the vector store.
+    Memory usage is strictly bounded and garbage collection is triggered after each batch.
     """
     supabase = get_supabase_client()
-    logger.info(f"[INDEXING START] Starting background indexing task for document_id={document_id}, user_id={user_id}")
+    initial_ram = get_memory_usage_mb()
+    logger.info(f"[INDEXING START] Starting background indexing task for document_id={document_id}, user_id={user_id} | Initial RAM: {initial_ram:.2f} MB")
     
     try:
         # Step 1: Update status in DB to processing
@@ -43,37 +47,63 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
             mock_client.table("documents").update({"status": "processing"}).eq("id", document_id).execute()
         safe_supabase_query(update_processing, fallback_processing, timeout_seconds=3.0)
         
-        # Step 2: Extract and chunk text
-        logger.info(f"[STEP 2/4] Parsing PDF & chunking content from: {file_path}")
-        chunks_data = pdf_service.extract_and_chunk(file_path)
-        if not chunks_data:
+        # Step 2-4: Stream page-by-page chunking & batch embedding in memory-safe batches of 20
+        logger.info(f"[STEP 2-4] Streaming PDF extraction and batch embedding (Batch Size: {BATCH_SIZE}) from: {file_path}")
+        
+        batch_chunks = []
+        batch_pages = []
+        batch_indices = []
+        total_chunks = 0
+
+        for chunk_item in pdf_service.extract_and_chunk_generator(file_path):
+            batch_chunks.append(chunk_item["text"])
+            batch_pages.append(chunk_item["page"])
+            batch_indices.append(chunk_item["chunk_index"])
+            total_chunks += 1
+
+            if len(batch_chunks) >= BATCH_SIZE:
+                logger.info(f"[BATCH EMBEDDING] Processing batch of {len(batch_chunks)} chunks (Total processed: {total_chunks}) | RAM: {get_memory_usage_mb():.2f} MB")
+                embeddings = embedding_service.get_embeddings(batch_chunks)
+                
+                success = add_document_chunks(
+                    user_id=user_id,
+                    document_id=document_id,
+                    filename=filename,
+                    chunks=batch_chunks,
+                    embeddings=embeddings,
+                    start_page=batch_pages,
+                    chunk_indices=batch_indices
+                )
+                if not success:
+                    raise RuntimeError(f"Vector store chunk insertion failed for batch ending at chunk {total_chunks}.")
+
+                del batch_chunks, batch_pages, batch_indices, embeddings
+                gc.collect()
+                batch_chunks, batch_pages, batch_indices = [], [], []
+
+        # Process any remaining items in the final batch
+        if batch_chunks:
+            logger.info(f"[FINAL BATCH EMBEDDING] Processing final batch of {len(batch_chunks)} chunks (Total chunks: {total_chunks}) | RAM: {get_memory_usage_mb():.2f} MB")
+            embeddings = embedding_service.get_embeddings(batch_chunks)
+            
+            success = add_document_chunks(
+                user_id=user_id,
+                document_id=document_id,
+                filename=filename,
+                chunks=batch_chunks,
+                embeddings=embeddings,
+                start_page=batch_pages,
+                chunk_indices=batch_indices
+            )
+            if not success:
+                raise RuntimeError("Vector store final chunk insertion failed.")
+
+            del batch_chunks, batch_pages, batch_indices, embeddings
+            gc.collect()
+
+        if total_chunks == 0:
             raise ValueError("No text could be extracted from this PDF. It might be image-only or corrupted.")
-            
-        chunks = [c["text"] for c in chunks_data]
-        pages = [c["page"] for c in chunks_data]
-        chunk_indices = [c["chunk_index"] for c in chunks_data]
-        logger.info(f"[STEP 2/4 COMPLETE] Extracted {len(chunks)} text chunks.")
-        
-        # Step 3: Generate embeddings
-        logger.info(f"[STEP 3/4] Generating embeddings for {len(chunks)} chunks...")
-        embeddings = embedding_service.get_embeddings(chunks)
-        logger.info(f"[STEP 3/4 COMPLETE] Generated {len(embeddings)} embedding vectors.")
-        
-        # Step 4: Store in Vector Store
-        logger.info(f"[STEP 4/4] Inserting chunks into vector store for document {document_id}")
-        success = add_document_chunks(
-            user_id=user_id,
-            document_id=document_id,
-            filename=filename,
-            chunks=chunks,
-            embeddings=embeddings,
-            start_page=pages,
-            chunk_indices=chunk_indices
-        )
-        
-        if not success:
-            raise RuntimeError("Vector store chunk insertion failed.")
-            
+
         # Update status in DB to processed
         def update_processed():
             supabase.table("documents").update({
@@ -88,7 +118,8 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
             }).eq("id", document_id).execute()
         safe_supabase_query(update_processed, fallback_processed, timeout_seconds=3.0)
         
-        logger.info(f"[SUCCESS] Finished background indexing for document_id={document_id}")
+        final_ram = get_memory_usage_mb()
+        logger.info(f"[SUCCESS] Finished background indexing for document_id={document_id} | Total Chunks: {total_chunks} | Final RAM: {final_ram:.2f} MB")
         
     except Exception as e:
         error_tb = traceback.format_exc()
@@ -108,6 +139,8 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
             safe_supabase_query(update_failed, fallback_failed, timeout_seconds=3.0)
         except Exception as db_err:
             logger.error(f"Failed to update document status to 'failed': {db_err}")
+    finally:
+        gc.collect()
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 def upload_document(
@@ -116,11 +149,12 @@ def upload_document(
     current_user: Any = Depends(get_current_user)
 ):
     """
-    Upload a PDF document. Saves it locally, uploads to Supabase storage,
-    registers metadata in DB, and automatically queues vector indexing.
+    Upload a PDF document using streaming file writing directly to disk to prevent RAM spikes.
+    Saves it locally, uploads to Supabase storage, registers metadata in DB, and queues vector indexing.
     Runs synchronously in a worker thread to prevent event loop blocking.
     """
-    logger.info(f"[UPLOAD RECEIVED] Request received for file='{file.filename}', user_id='{current_user.id}'")
+    ram_start = get_memory_usage_mb()
+    logger.info(f"[UPLOAD RECEIVED] File='{file.filename}', user_id='{current_user.id}' | Initial RAM: {ram_start:.2f} MB")
     
     # Validation: Allowed document extensions
     allowed_exts = {".pdf", ".txt", ".md", ".csv", ".json", ".doc", ".docx", ".log"}
@@ -130,16 +164,6 @@ def upload_document(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid file format. Supported formats are PDF, TXT, MD, CSV, JSON, and DOCX."
-        )
-        
-    # Read size to validate synchronously
-    file_bytes = file.file.read()
-    file_size = len(file_bytes)
-    if file_size > MAX_FILE_SIZE:
-        logger.warning(f"[UPLOAD ERROR] File size {file_size} exceeds 100MB max limit.")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File is too large. Maximum allowed size is 100MB."
         )
         
     supabase = get_supabase_client()
@@ -163,14 +187,32 @@ def upload_document(
     os.makedirs(user_upload_dir, exist_ok=True)
     local_file_path = os.path.join(user_upload_dir, filename)
     
-    # Save file locally
+    # Stream file directly to disk in 1MB chunks (Memory Optimization: Avoid loading full file bytes into RAM)
+    file_size = 0
+    buffer_chunk_size = 1024 * 1024  # 1 MB buffer
     try:
-        with open(local_file_path, "wb") as f:
-            f.write(file_bytes)
-        logger.info(f"[FILE SAVED] Saved upload locally to {local_file_path}")
+        with open(local_file_path, "wb") as buffer:
+            while chunk := file.file.read(buffer_chunk_size):
+                file_size += len(chunk)
+                if file_size > MAX_FILE_SIZE:
+                    buffer.close()
+                    if os.path.exists(local_file_path):
+                        os.remove(local_file_path)
+                    logger.warning(f"[UPLOAD ERROR] File size {file_size} exceeds 10MB limit.")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="File is too large. Maximum allowed size is 10MB."
+                    )
+                buffer.write(chunk)
+        ram_after_save = get_memory_usage_mb()
+        logger.info(f"[FILE STREAM SAVED] Saved upload ({file_size} bytes) to {local_file_path} | RAM: {ram_after_save:.2f} MB")
+    except HTTPException:
+        raise
     except Exception as e:
         error_tb = traceback.format_exc()
-        logger.error(f"[FILE SAVE ERROR] Failed to write file locally: {e}\n{error_tb}")
+        if os.path.exists(local_file_path):
+            os.remove(local_file_path)
+        logger.error(f"[FILE SAVE ERROR] Failed to stream file to disk: {e}\n{error_tb}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Could not save file on backend server storage: {str(e)}"
@@ -181,9 +223,10 @@ def upload_document(
     try:
         def storage_upload():
             bucket = supabase.storage.from_("pdfs")
-            bucket.upload(path=storage_path, file=file_bytes, file_options={"content-type": "application/pdf"})
+            with open(local_file_path, "rb") as f:
+                bucket.upload(path=storage_path, file=f.read(), file_options={"content-type": "application/pdf"})
         safe_supabase_query(storage_upload, None, timeout_seconds=4.0)
-        logger.info(f"[SUPABASE UPLOAD] Successfully uploaded to bucket 'pdfs' at path: {storage_path}")
+        logger.info(f"[SUPABASE UPLOAD] Uploaded to bucket 'pdfs' at path: {storage_path}")
     except Exception as e:
         logger.warning(f"[SUPABASE UPLOAD WARNING] Failed to upload to Supabase storage: {e}")
         
@@ -212,7 +255,7 @@ def upload_document(
         if not db_insert or not db_insert.data:
             db_insert = fallback_db_insert()
         doc_record = db_insert.data[0]
-        logger.info(f"[DATABASE INSERT SUCCESS] Document record created with ID: {doc_record['id']}")
+        logger.info(f"[DATABASE INSERT SUCCESS] Document record created with ID: {doc_record['id']} | RAM: {get_memory_usage_mb():.2f} MB")
         
         # Queue automatic background indexing
         background_tasks.add_task(
@@ -223,6 +266,8 @@ def upload_document(
             user_id=current_user.id
         )
         
+        ram_before_resp = get_memory_usage_mb()
+        logger.info(f"[UPLOAD RESPONSE READY] Returning doc_record | RAM: {ram_before_resp:.2f} MB")
         return doc_record
     except Exception as e:
         error_tb = traceback.format_exc()
