@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr
-from app.database.supabase_client import supabase_anon
+from app.database.supabase_client import get_supabase_client
 from app.core.logging_config import get_logger
 from app.core.errors import handle_exception, is_connection_error
 
@@ -21,8 +21,9 @@ def signup(payload: AuthRequest):
     Registers a new user in Supabase Auth.
     """
     logger.info(f"Received signup request for: {payload.email}")
+    supabase = get_supabase_client(use_service_role=False)
     try:
-        response = supabase_anon.auth.sign_up({
+        response = supabase.auth.sign_up({
             "email": payload.email,
             "password": payload.password
         })
@@ -63,8 +64,9 @@ def login(payload: AuthRequest):
     Authenticates a user using Supabase Auth.
     """
     logger.info(f"Received login request for: {payload.email}")
+    supabase = get_supabase_client(use_service_role=False)
     try:
-        response = supabase_anon.auth.sign_in_with_password({
+        response = supabase.auth.sign_in_with_password({
             "email": payload.email,
             "password": payload.password
         })
@@ -104,9 +106,11 @@ def forgot_password(payload: ForgotPasswordRequest):
     Sends a password reset email using Supabase Auth.
     """
     logger.info(f"Received forgot password request for: {payload.email}")
+    supabase = get_supabase_client(use_service_role=False)
     try:
-        response = supabase_anon.auth.reset_password_for_email(payload.email)
+        response = supabase.auth.reset_password_for_email(payload.email)
         logger.info(f"Password reset email sent to: {payload.email}")
         return {"message": "Password reset link sent successfully."}
     except Exception as e:
         handle_exception(e)
+

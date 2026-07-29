@@ -9,7 +9,7 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
-    # Deprecated: Supabase Connection settings (unused in offline SQLite mode)
+    # Supabase Connection settings
     SUPABASE_URL: str = Field(default="")
     SUPABASE_ANON_KEY: str = Field(default="")
     SUPABASE_SERVICE_ROLE_KEY: str = Field(default="")
@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = Field(default="fallback_secret_key_for_development_only_change_in_prod")
     DATABASE_URL: str = Field(default="")
     UPLOAD_FOLDER: str = Field(default="./uploads")
+    FRONTEND_URL: str = Field(default="")
     
     HOST: str = Field(default="0.0.0.0")
     PORT: int = Field(default=8000)
@@ -31,7 +32,7 @@ class Settings(BaseSettings):
     @field_validator(
         "SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
         "GOOGLE_API_KEY", "SECRET_KEY", "DATABASE_URL",
-        "UPLOAD_FOLDER", "HOST",
+        "UPLOAD_FOLDER", "HOST", "FRONTEND_URL",
         mode="before"
     )
     @classmethod
@@ -46,3 +47,4 @@ settings = Settings()
 # Ensure directories exist
 os.makedirs(settings.UPLOAD_FOLDER, exist_ok=True)
 os.makedirs("./logs", exist_ok=True)
+

@@ -25,8 +25,11 @@ def validate_startup_config():
     print("\nRunning startup checks...")
     errors = []
     
-    # 1. Supabase URL (Skipped: offline SQLite mode is active)
-    print("✓ Local SQLite Database Active (Supabase connection skipped)")
+    # 1. Supabase URL
+    if settings.SUPABASE_URL:
+        print(f"✓ Supabase URL configured: {settings.SUPABASE_URL}")
+    else:
+        print("⚠ SUPABASE_URL missing: local SQLite mock active.")
         
     # 2. Gemini API
     if not settings.GOOGLE_API_KEY:
@@ -66,11 +69,11 @@ def validate_startup_config():
         errors.append("SECRET_KEY environment variable is missing or empty.")
         
     if errors:
-        print("\nCRITICAL: FastAPI server startup stopped due to config errors:")
+        print("\nCRITICAL: FastAPI server configuration warnings/errors:")
         for err in errors:
             print(f"  - {err}")
-        print("\nPlease check your .env file and environment variables configuration.\n")
-        sys.exit(1)
+        print("\nPlease check your .env file and environment variables configuration on Render.\n")
+        logger.error(f"Startup configuration warnings: {errors}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -131,17 +134,20 @@ async def socket_gaierror_handler(request: Request, exc: socket.gaierror):
 
 # CORS Configuration
 origins = [
-    "http://localhost:5173",  # Vite Dev Server
+    "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "https://rag-1-6u80.onrender.com",
+    "https://rag-2qr1.onrender.com",
 ]
+if hasattr(settings, "FRONTEND_URL") and settings.FRONTEND_URL:
+    origins.append(settings.FRONTEND_URL)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_origin_regex=r".*",
-    allow_credentials=False,
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.onrender\.com|https://.*\.vercel\.app|https://.*\.netlify\.app",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

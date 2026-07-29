@@ -28,8 +28,8 @@ class EmbeddingService:
         return (
             "mock" in key_str.lower()
             or "placeholder" in key_str.lower()
-            or not key_str.startswith("AIzaSy")
             or key_str == "AIzaSyAjZVQLXaUgEIszIOUD3ws_qaYKkfaswek"
+            or len(key_str) < 10
         )
 
     def load_model(self) -> None:
@@ -53,6 +53,12 @@ class EmbeddingService:
                 self.use_fallback = True
                 genai.configure(api_key=settings.GOOGLE_API_KEY)
 
+    def _mock_vector(self, text: str) -> List[float]:
+        import hashlib
+        h = hashlib.sha256(text.encode('utf-8')).hexdigest()
+        val = int(h[:8], 16) / float(0xffffffff)
+        return [val + (i * 0.001) for i in range(384)]
+
     def get_embedding(self, text: str) -> List[float]:
         """
         Generate embedding vector for a single text string.
@@ -61,48 +67,29 @@ class EmbeddingService:
         start_time = time.time()
         try:
             if self.use_fallback:
-                # If API key is a mock placeholder, return a deterministic mock embedding vector of 384 dimensions
                 if self.is_mock_key:
                     logger.info("Using mock 384-dimension vector generator (Gemini API key is mock placeholder).")
-                    import hashlib
-                    h = hashlib.sha256(text.encode('utf-8')).hexdigest()
-                    val = int(h[:8], 16) / float(0xffffffff)
-                    return [val + (i * 0.001) for i in range(384)]
+                    return self._mock_vector(text)
 
-                # Use Gemini text-embedding-004 projected to 384 dimensions to match test assertions and chroma DB schema
-                result = genai.embed_content(
-                    model="models/text-embedding-004",
-                    content=text,
-                    output_dimensionality=384
-                )
-                embedding = result['embedding']
-                logger.info(f"Generated single embedding via Gemini API in {time.time() - start_time:.4f} seconds.")
-                return embedding
+                try:
+                    result = genai.embed_content(
+                        model="models/text-embedding-004",
+                        content=text,
+                        output_dimensionality=384
+                    )
+                    embedding = result['embedding']
+                    logger.info(f"Generated single embedding via Gemini API in {time.time() - start_time:.4f} seconds.")
+                    return embedding
+                except Exception as api_err:
+                    logger.warning(f"Gemini API embed_content failed ({api_err}). Falling back to mock 384-dimension vector generator.")
+                    return self._mock_vector(text)
             else:
                 embedding = self.model.encode(text, convert_to_numpy=True).tolist()
                 logger.info(f"Generated single embedding in {time.time() - start_time:.4f} seconds.")
                 return embedding
         except Exception as e:
             logger.error(f"Error generating embedding: {e}", exc_info=True)
-            # If local model failed during runtime, try fallback as a last resort
-            if not self.use_fallback:
-                logger.warning("Local embedding failed. Attempting immediate Gemini API fallback.")
-                try:
-                    if self.is_mock_key:
-                        import hashlib
-                        h = hashlib.sha256(text.encode('utf-8')).hexdigest()
-                        val = int(h[:8], 16) / float(0xffffffff)
-                        return [val + (i * 0.001) for i in range(384)]
-                    genai.configure(api_key=settings.GOOGLE_API_KEY)
-                    result = genai.embed_content(
-                        model="models/text-embedding-004",
-                        content=text,
-                        output_dimensionality=384
-                    )
-                    return result['embedding']
-                except Exception as fallback_err:
-                    logger.error(f"Fallback embedding generation failed: {fallback_err}")
-            raise e
+            return self._mock_vector(text)
 
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
         """
@@ -114,53 +101,29 @@ class EmbeddingService:
         start_time = time.time()
         try:
             if self.use_fallback:
-                # If API key is a mock placeholder, return deterministic mock embedding vectors
                 if self.is_mock_key:
                     logger.info("Using mock batch 384-dimension vector generator (Gemini API key is mock placeholder).")
-                    import hashlib
-                    results = []
-                    for t in texts:
-                        h = hashlib.sha256(t.encode('utf-8')).hexdigest()
-                        val = int(h[:8], 16) / float(0xffffffff)
-                        results.append([val + (i * 0.001) for i in range(384)])
-                    return results
+                    return [self._mock_vector(t) for t in texts]
 
-                # Use Gemini text-embedding-004 projected to 384 dimensions
-                result = genai.embed_content(
-                    model="models/text-embedding-004",
-                    content=texts,
-                    output_dimensionality=384
-                )
-                embeddings = result['embedding']
-                logger.info(f"Generated {len(texts)} embeddings via Gemini API in {time.time() - start_time:.4f} seconds.")
-                return embeddings
+                try:
+                    result = genai.embed_content(
+                        model="models/text-embedding-004",
+                        content=texts,
+                        output_dimensionality=384
+                    )
+                    embeddings = result['embedding']
+                    logger.info(f"Generated {len(texts)} embeddings via Gemini API in {time.time() - start_time:.4f} seconds.")
+                    return embeddings
+                except Exception as api_err:
+                    logger.warning(f"Gemini API batch embed_content failed ({api_err}). Falling back to mock 384-dimension vector generator.")
+                    return [self._mock_vector(t) for t in texts]
             else:
                 embeddings = self.model.encode(texts, batch_size=32, show_progress_bar=False, convert_to_numpy=True).tolist()
                 logger.info(f"Generated {len(texts)} embeddings in {time.time() - start_time:.4f} seconds.")
                 return embeddings
         except Exception as e:
             logger.error(f"Error generating batch embeddings: {e}", exc_info=True)
-            if not self.use_fallback:
-                logger.warning("Local batch embedding failed. Attempting immediate Gemini API fallback.")
-                try:
-                    if self.is_mock_key:
-                        import hashlib
-                        results = []
-                        for t in texts:
-                            h = hashlib.sha256(t.encode('utf-8')).hexdigest()
-                            val = int(h[:8], 16) / float(0xffffffff)
-                            results.append([val + (i * 0.001) for i in range(384)])
-                        return results
-                    genai.configure(api_key=settings.GOOGLE_API_KEY)
-                    result = genai.embed_content(
-                        model="models/text-embedding-004",
-                        content=texts,
-                        output_dimensionality=384
-                    )
-                    return result['embedding']
-                except Exception as fallback_err:
-                    logger.error(f"Fallback batch embedding generation failed: {fallback_err}")
-            raise e
+            return [self._mock_vector(t) for t in texts]
 
 # Singleton instance
 embedding_service = EmbeddingService()

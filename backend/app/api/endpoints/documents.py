@@ -1,5 +1,7 @@
 import os
+import time
 import shutil
+import traceback
 from typing import List, Any
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks, status
 from pydantic import BaseModel
@@ -26,16 +28,18 @@ class RenameRequest(BaseModel):
 def async_process_document(document_id: str, file_path: str, filename: str, user_id: str):
     """
     Background worker function that extracts text, splits it into chunks,
-    generates embeddings, and indexes them into ChromaDB.
+    generates embeddings, and indexes them into vector store.
     """
     supabase = get_supabase_client()
-    logger.info(f"Starting background indexing task for document {document_id}")
+    logger.info(f"[INDEXING START] Starting background indexing task for document_id={document_id}, user_id={user_id}")
     
     try:
-        # 1. Update status in DB to processing
+        # Step 1: Update status in DB to processing
+        logger.info(f"[STEP 1/4] Updating status to 'processing' in DB for document {document_id}")
         supabase.table("documents").update({"status": "processing"}).eq("id", document_id).execute()
         
-        # 2. Extract and chunk text
+        # Step 2: Extract and chunk text
+        logger.info(f"[STEP 2/4] Parsing PDF & chunking content from: {file_path}")
         chunks_data = pdf_service.extract_and_chunk(file_path)
         if not chunks_data:
             raise ValueError("No text could be extracted from this PDF. It might be image-only or corrupted.")
@@ -43,11 +47,15 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
         chunks = [c["text"] for c in chunks_data]
         pages = [c["page"] for c in chunks_data]
         chunk_indices = [c["chunk_index"] for c in chunks_data]
+        logger.info(f"[STEP 2/4 COMPLETE] Extracted {len(chunks)} text chunks.")
         
-        # 3. Generate embeddings
+        # Step 3: Generate embeddings
+        logger.info(f"[STEP 3/4] Generating embeddings for {len(chunks)} chunks...")
         embeddings = embedding_service.get_embeddings(chunks)
+        logger.info(f"[STEP 3/4 COMPLETE] Generated {len(embeddings)} embedding vectors.")
         
-        # 4. Store in ChromaDB
+        # Step 4: Store in Vector Store
+        logger.info(f"[STEP 4/4] Inserting chunks into vector store for document {document_id}")
         success = add_document_chunks(
             user_id=user_id,
             document_id=document_id,
@@ -59,22 +67,26 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
         )
         
         if not success:
-            raise RuntimeError("ChromaDB ingestion failed.")
+            raise RuntimeError("Vector store chunk insertion failed.")
             
-        # 5. Update status in DB to processed
+        # Update status in DB to processed
         supabase.table("documents").update({
             "status": "processed",
             "error_message": None
         }).eq("id", document_id).execute()
         
-        logger.info(f"Successfully finished background indexing for document {document_id}")
+        logger.info(f"[SUCCESS] Finished background indexing for document_id={document_id}")
         
     except Exception as e:
-        logger.error(f"Failed to process document {document_id}: {e}", exc_info=True)
-        supabase.table("documents").update({
-            "status": "failed",
-            "error_message": str(e)
-        }).eq("id", document_id).execute()
+        error_tb = traceback.format_exc()
+        logger.error(f"[FAILURE] Failed to process document {document_id}: {e}\n{error_tb}")
+        try:
+            supabase.table("documents").update({
+                "status": "failed",
+                "error_message": str(e)
+            }).eq("id", document_id).execute()
+        except Exception as db_err:
+            logger.error(f"Failed to update document status to 'failed': {db_err}")
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_document(
@@ -86,12 +98,13 @@ async def upload_document(
     Upload a PDF document. Saves it locally, uploads to Supabase storage,
     registers metadata in DB, and automatically queues vector indexing.
     """
-    logger.info(f"Uploading file '{file.filename}' for user {current_user.id}")
+    logger.info(f"[UPLOAD RECEIVED] Request received for file='{file.filename}', user_id='{current_user.id}'")
     
     # Validation: Allowed document extensions
     allowed_exts = {".pdf", ".txt", ".md", ".csv", ".json", ".doc", ".docx", ".log"}
     ext = os.path.splitext(file.filename.lower())[1]
     if ext not in allowed_exts:
+        logger.warning(f"[UPLOAD ERROR] Invalid file extension '{ext}' for file '{file.filename}'")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid file format. Supported formats are PDF, TXT, MD, CSV, JSON, and DOCX."
@@ -101,6 +114,7 @@ async def upload_document(
     file_bytes = await file.read()
     file_size = len(file_bytes)
     if file_size > MAX_FILE_SIZE:
+        logger.warning(f"[UPLOAD ERROR] File size {file_size} exceeds 100MB max limit.")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File is too large. Maximum allowed size is 100MB."
@@ -113,11 +127,15 @@ async def upload_document(
     
     # Duplicate Detection & Auto-naming
     filename = file.filename
-    existing_check = supabase.table("documents").select("id").eq("user_id", current_user.id).eq("name", filename).execute()
-    if existing_check.data and len(existing_check.data) > 0:
-        base_name, ext = os.path.splitext(file.filename)
-        timestamp = time.strftime("%H%M%S")
-        filename = f"{base_name}_{timestamp}{ext}"
+    try:
+        existing_check = supabase.table("documents").select("id").eq("user_id", current_user.id).eq("name", filename).execute()
+        if existing_check.data and len(existing_check.data) > 0:
+            base_name, ext = os.path.splitext(file.filename)
+            timestamp = time.strftime("%H%M%S")
+            filename = f"{base_name}_{timestamp}{ext}"
+            logger.info(f"[UPLOAD AUTO-RENAME] Duplicate file detected. Renamed to '{filename}'")
+    except Exception as dup_err:
+        logger.warning(f"[UPLOAD DUP CHECK WARNING] {dup_err}")
 
     # Make local upload directory path
     user_upload_dir = os.path.join(settings.UPLOAD_FOLDER, str(current_user.id))
@@ -128,11 +146,13 @@ async def upload_document(
     try:
         with open(local_file_path, "wb") as f:
             f.write(file_bytes)
+        logger.info(f"[FILE SAVED] Saved upload locally to {local_file_path}")
     except Exception as e:
-        logger.error(f"Failed to write file locally: {e}")
+        error_tb = traceback.format_exc()
+        logger.error(f"[FILE SAVE ERROR] Failed to write file locally: {e}\n{error_tb}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not save file on backend server storage."
+            detail=f"Could not save file on backend server storage: {str(e)}"
         )
 
     # Upload to Supabase Storage
@@ -140,12 +160,13 @@ async def upload_document(
     try:
         bucket = supabase.storage.from_("pdfs")
         bucket.upload(path=storage_path, file=file_bytes, file_options={"content-type": "application/pdf"})
+        logger.info(f"[SUPABASE UPLOAD] Successfully uploaded to bucket 'pdfs' at path: {storage_path}")
     except Exception as e:
-        logger.warning(f"Failed to upload document to Supabase storage: {e}")
-        pass
+        logger.warning(f"[SUPABASE UPLOAD WARNING] Failed to upload to Supabase storage: {e}")
         
     # Insert metadata into Database
     try:
+        logger.info(f"[DATABASE INSERT] Registering document in Supabase DB for user {current_user.id}")
         db_insert = supabase.table("documents").insert({
             "user_id": current_user.id,
             "name": filename,
@@ -155,10 +176,10 @@ async def upload_document(
         }).execute()
         
         if not db_insert.data:
-            raise RuntimeError("Database entry creation failed.")
+            raise RuntimeError("Database entry creation returned empty result.")
             
         doc_record = db_insert.data[0]
-        logger.info(f"Document registered in DB: {doc_record['id']}")
+        logger.info(f"[DATABASE INSERT SUCCESS] Document record created with ID: {doc_record['id']}")
         
         # Queue automatic background indexing
         background_tasks.add_task(
@@ -171,7 +192,8 @@ async def upload_document(
         
         return doc_record
     except Exception as e:
-        logger.warning(f"Primary Supabase DB insertion failed ({e}). Falling back to local database...")
+        error_tb = traceback.format_exc()
+        logger.warning(f"[PRIMARY DB INSERT FAIL] Primary DB insert error ({e}). Falling back to local database...\n{error_tb}")
         try:
             from app.database.supabase_client import mock_client
             db_insert = mock_client.table("documents").insert({
@@ -183,7 +205,7 @@ async def upload_document(
             }).execute()
             
             doc_record = db_insert.data[0]
-            logger.info(f"Document registered in fallback DB: {doc_record['id']}")
+            logger.info(f"[FALLBACK DB INSERT SUCCESS] Document registered in local SQLite DB: {doc_record['id']}")
             
             background_tasks.add_task(
                 async_process_document,
@@ -194,7 +216,8 @@ async def upload_document(
             )
             return doc_record
         except Exception as fallback_err:
-            logger.error(f"Fallback DB insertion failed: {fallback_err}", exc_info=True)
+            fb_tb = traceback.format_exc()
+            logger.error(f"[FALLBACK DB ERROR] Both Primary and Fallback DB inserts failed: {fallback_err}\n{fb_tb}")
             if os.path.exists(local_file_path):
                 os.remove(local_file_path)
             raise HTTPException(
@@ -212,13 +235,16 @@ def list_documents(current_user: Any = Depends(get_current_user)):
         response = supabase.table("documents").select("*").eq("user_id", current_user.id).order("created_at", desc=True).execute()
         return response.data
     except Exception as e:
-        logger.warning(f"Failed to list documents from primary DB: {e}. Trying fallback DB...")
+        error_tb = traceback.format_exc()
+        logger.warning(f"[DOCUMENTS LIST WARNING] Primary DB list query failed: {e}\n{error_tb}. Attempting fallback DB...")
         try:
             from app.database.supabase_client import mock_client
             res = mock_client.table("documents").select("*").eq("user_id", current_user.id).order("created_at", desc=True).execute()
             return res.data
-        except Exception:
-            raise HTTPException(status_code=500, detail="Could not retrieve documents list.")
+        except Exception as fb_err:
+            fb_tb = traceback.format_exc()
+            logger.error(f"[DOCUMENTS LIST ERROR] Failed to list documents: {fb_err}\n{fb_tb}")
+            raise HTTPException(status_code=500, detail=f"Could not retrieve documents list: {str(e)}")
 
 @router.get("/{document_id}/output")
 def get_document_output(

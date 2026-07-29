@@ -397,12 +397,13 @@ def get_supabase_client(use_service_role: bool = True) -> Client:
     Returns the appropriate Supabase client. If Supabase credentials are not provided,
     falls back to the SQLite Mock client to allow offline testing and execution.
     """
-    has_supabase = bool(
+    url_valid = bool(
         settings.SUPABASE_URL 
-        and "supabase.co" in settings.SUPABASE_URL
-        and (settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_ANON_KEY)
+        and (settings.SUPABASE_URL.startswith("http://") or settings.SUPABASE_URL.startswith("https://"))
     )
-    if not has_supabase:
+    has_keys = bool(settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_ANON_KEY)
+    
+    if not (url_valid and has_keys):
         return mock_client
         
     url = settings.SUPABASE_URL
