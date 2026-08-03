@@ -1,59 +1,67 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "outputDirectory": "dist",
-  "functions": {
-    "api/index.py": {
-      "excludeFiles": "{frontend/**,node_modules/**,docs/**,chroma_db/**,uploads/**,backend/venv/**,backend/tests/**,backend/chroma_db/**,backend/uploads/**}"
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
     }
-  },
-  "rewrites": [
+  ],
+  "routes": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.py"
+      "src": "/api/(.*)",
+      "dest": "api/index.py"
     },
     {
-      "source": "/auth/(.*)",
-      "destination": "/api/index.py"
+      "src": "/auth/(.*)",
+      "dest": "api/index.py"
     },
     {
-      "source": "/documents/(.*)",
-      "destination": "/api/index.py"
+      "src": "/documents/(.*)",
+      "dest": "api/index.py"
     },
     {
-      "source": "/documents",
-      "destination": "/api/index.py"
+      "src": "/documents",
+      "dest": "api/index.py"
     },
     {
-      "source": "/chat/(.*)",
-      "destination": "/api/index.py"
+      "src": "/chat/(.*)",
+      "dest": "api/index.py"
     },
     {
-      "source": "/chat",
-      "destination": "/api/index.py"
+      "src": "/chat",
+      "dest": "api/index.py"
     },
     {
-      "source": "/dashboard",
-      "destination": "/api/index.py"
+      "src": "/dashboard",
+      "dest": "api/index.py"
     },
     {
-      "source": "/health",
-      "destination": "/api/index.py"
+      "src": "/health",
+      "dest": "api/index.py"
     },
     {
-      "source": "/docs",
-      "destination": "/api/index.py"
+      "src": "/docs",
+      "dest": "api/index.py"
     },
     {
-      "source": "/openapi.json",
-      "destination": "/api/index.py"
+      "src": "/openapi.json",
+      "dest": "api/index.py"
     },
     {
-      "source": "/redoc",
-      "destination": "/api/index.py"
+      "src": "/redoc",
+      "dest": "api/index.py"
     },
     {
-      "source": "/((?!api/|auth/|documents|chat|dashboard|health|docs|openapi.json|redoc).*)",
-      "destination": "/index.html"
+      "src": "/(.*)",
+      "dest": "frontend/$1"
     }
   ]
 }
