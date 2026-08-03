@@ -1,4 +1,7 @@
 # Files and folders to exclude from Vercel Serverless Function bundle
+node_modules/
+frontend/node_modules/
+dist/
 .git/
 .agents/
 docs/
@@ -13,4 +16,5 @@ backend/logs/
 .pytest_cache/
 *.md
 *.log
+
 
