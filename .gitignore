@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# Vercel deployment artifacts
+.vercel
+.vercel/
+
 # Python virtual environment and cache
 venv/
 .venv/

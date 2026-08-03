@@ -377,11 +377,20 @@ class MockAuth:
 
 class MockSupabaseClient:
     def __init__(self):
-        # Create database file under the designated uploads folder
-        os.makedirs(settings.UPLOAD_FOLDER, exist_ok=True)
-        self.db_path = os.path.join(settings.UPLOAD_FOLDER, "local_database.db")
+        # Create database file under the designated uploads folder or /tmp
+        db_dir = settings.UPLOAD_FOLDER
+        try:
+            os.makedirs(db_dir, exist_ok=True)
+        except Exception:
+            db_dir = "/tmp"
+            os.makedirs(db_dir, exist_ok=True)
+            
+        self.db_path = os.path.join(db_dir, "local_database.db")
         self.storage = MockStorage()
-        init_local_db(self.db_path)
+        try:
+            init_local_db(self.db_path)
+        except Exception as e:
+            logger.warning(f"Could not initialize local SQLite database: {e}")
         self.auth = MockAuth(self.db_path)
 
     def table(self, table_name):

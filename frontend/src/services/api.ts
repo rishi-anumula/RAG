@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const getApiBaseUrl = () => {
-  if (import.meta.env.VITE_API_URL) {
+  if (import.meta.env.VITE_API_URL !== undefined && import.meta.env.VITE_API_URL !== '') {
     return import.meta.env.VITE_API_URL;
   }
   if (typeof window !== 'undefined') {
@@ -10,7 +10,7 @@ const getApiBaseUrl = () => {
       return 'http://localhost:8000';
     }
   }
-  return 'https://rag-2qr1.onrender.com';
+  return '';
 };
 
 const API_BASE_URL = getApiBaseUrl();

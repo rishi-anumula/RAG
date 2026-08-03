@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str = Field(default="")
     SECRET_KEY: str = Field(default="fallback_secret_key_for_development_only_change_in_prod")
     DATABASE_URL: str = Field(default="")
-    UPLOAD_FOLDER: str = Field(default="./uploads")
+    UPLOAD_FOLDER: str = Field(default="/tmp/uploads" if os.getenv("VERCEL") else "./uploads")
     FRONTEND_URL: str = Field(default="")
     
     HOST: str = Field(default="0.0.0.0")
@@ -44,7 +44,15 @@ class Settings(BaseSettings):
 # Global settings instance
 settings = Settings()
 
-# Ensure directories exist
-os.makedirs(settings.UPLOAD_FOLDER, exist_ok=True)
-os.makedirs("./logs", exist_ok=True)
+# Ensure directories exist safely without throwing errors on read-only serverless environments
+try:
+    os.makedirs(settings.UPLOAD_FOLDER, exist_ok=True)
+except Exception:
+    pass
+
+try:
+    log_dir = "/tmp/logs" if os.getenv("VERCEL") else "./logs"
+    os.makedirs(log_dir, exist_ok=True)
+except Exception:
+    pass
 

@@ -132,27 +132,36 @@ async def socket_gaierror_handler(request: Request, exc: socket.gaierror):
         content={"detail": "Unable to connect to Supabase. Please verify your SUPABASE_URL, internet connection, and environment variables."}
     )
 
+from fastapi import FastAPI, Request, HTTPException, status, APIRouter
+
 # CORS Configuration
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    "https://rag-1-6u80.onrender.com",
-    "https://rag-2qr1.onrender.com",
+    "http://127.0.0.1:3000",
 ]
 if hasattr(settings, "FRONTEND_URL") and settings.FRONTEND_URL:
     origins.append(settings.FRONTEND_URL)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_origin_regex=r"https://.*\.onrender\.com|https://.*\.vercel\.app|https://.*\.netlify\.app",
+    allow_origins=origins if origins else ["*"],
+    allow_origin_regex=r"https://.*\.vercel\.app|https://.*\.onrender\.com|https://.*\.netlify\.app|http://localhost:.*|http://127\.0\.0\.1:.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Mount Routers
+# Mount Routers under both direct paths (e.g., /auth) and /api prefix (e.g., /api/auth)
+api_router = APIRouter(prefix="/api")
+api_router.include_router(auth.router)
+api_router.include_router(documents.router)
+api_router.include_router(chat.router)
+api_router.include_router(dashboard.router)
+api_router.include_router(health.router)
+
+app.include_router(api_router)
 app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(chat.router)

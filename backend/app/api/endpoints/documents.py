@@ -2,12 +2,13 @@ import os
 import time
 import shutil
 import traceback
+import gc
 from typing import List, Any
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks, status
 from pydantic import BaseModel
 from app.core.config import settings
 from app.core.security import get_current_user
-from app.core.logging_config import get_logger
+from app.core.logging_config import get_logger, get_memory_usage_mb
 from app.database.supabase_client import get_supabase_client, safe_supabase_query
 from app.services.pdf_service import pdf_service
 from app.embeddings.embedder import embedding_service

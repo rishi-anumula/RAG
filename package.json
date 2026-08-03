@@ -1,0 +1,23 @@
+{
+  "name": "ai-knowledge-base-rag",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Full-stack AI Knowledge Base Search RAG Application ready for Vercel Deployment",
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && uvicorn app.main:app --reload",
+    "lint": "cd frontend && npm run lint"
+  },
+  "keywords": [
+    "rag",
+    "fastapi",
+    "react",
+    "vite",
+    "supabase",
+    "gemini",
+    "vercel"
+  ],
+  "author": "",
+  "license": "MIT"
+}
