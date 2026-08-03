@@ -4,7 +4,7 @@
   "private": true,
   "description": "Full-stack AI Knowledge Base Search RAG Application ready for Vercel Deployment",
   "scripts": {
-    "build": "cd frontend && npm install && npm run build",
+    "build": "cd frontend && npm install && npm run build && cd .. && node -e \"require('fs').cpSync('frontend/dist', 'dist', { recursive: true })\"",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:backend": "cd backend && uvicorn app.main:app --reload",
     "lint": "cd frontend && npm run lint"
