@@ -1,6 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "dist",
+  "functions": {
+    "api/index.py": {
+      "excludeFiles": "{frontend/**,node_modules/**,docs/**,chroma_db/**,uploads/**,backend/venv/**,backend/tests/**,backend/chroma_db/**,backend/uploads/**}"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
