@@ -169,12 +169,14 @@ app.include_router(dashboard.router)
 app.include_router(health.router)
 
 @app.get("/")
+@app.get("/api")
+@app.get("/api/")
 def read_root():
     return {
         "title": "AI Knowledge Base Search RAG API",
         "docs_url": "/docs",
         "redoc_url": "/redoc",
-        "health": "/health"
+        "health": "/api/health"
     }
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ const getApiBaseUrl = () => {
       return 'http://localhost:8000';
     }
   }
-  return '';
+  return '/api';
 };
 
 const API_BASE_URL = getApiBaseUrl();
