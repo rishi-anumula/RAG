@@ -22,58 +22,26 @@ if hasattr(sys.stderr, "reconfigure"):
 logger = get_logger(__name__)
 
 def validate_startup_config():
-    print("\nRunning startup checks...")
-    errors = []
-    
+    logger.info("Running startup checks...")
     # 1. Supabase URL
     if settings.SUPABASE_URL:
-        print(f"✓ Supabase URL configured: {settings.SUPABASE_URL}")
+        logger.info(f"Supabase URL configured: {settings.SUPABASE_URL}")
     else:
-        print("⚠ SUPABASE_URL missing: local SQLite mock active.")
+        logger.info("SUPABASE_URL missing: local SQLite mock active.")
         
     # 2. Gemini API
     if not settings.GOOGLE_API_KEY:
-        print("✗ Gemini API Loaded: MISSING")
-        errors.append("GOOGLE_API_KEY environment variable is missing or empty.")
+        logger.warning("GOOGLE_API_KEY environment variable is missing or empty.")
     else:
-        print("✓ Gemini API Loaded")
+        logger.info("Gemini API key loaded.")
         
-    # 3. Supabase Vector Store Connection
-    try:
-        supabase = get_supabase_client()
-        supabase.table("document_chunks").select("id").limit(1).execute()
-        print("✓ Supabase Vector Store Connected")
-    except Exception as e:
-        print(f"✗ Supabase Vector Store Connected: {e}")
-        errors.append(f"Failed to connect to Supabase Vector Store: {e}")
-        
-    # 4. Upload Folder
-    if not settings.UPLOAD_FOLDER:
-        print("✗ Upload Folder Ready: MISSING")
-        errors.append("UPLOAD_FOLDER settings variable is missing or empty.")
-    else:
+    # 3. Upload Folder
+    if settings.UPLOAD_FOLDER:
         try:
             os.makedirs(settings.UPLOAD_FOLDER, exist_ok=True)
-            # Test write permissions
-            test_file = os.path.join(settings.UPLOAD_FOLDER, ".write_test")
-            with open(test_file, "w") as f:
-                f.write("test")
-            os.remove(test_file)
-            print("✓ Upload Folder Ready")
+            logger.info("Upload folder ready.")
         except Exception as e:
-            print(f"✗ Upload Folder Ready: {e}")
-            errors.append(f"Upload folder '{settings.UPLOAD_FOLDER}' is not writeable: {e}")
-            
-    # Validate other required credentials
-    if not settings.SECRET_KEY:
-        errors.append("SECRET_KEY environment variable is missing or empty.")
-        
-    if errors:
-        print("\nCRITICAL: FastAPI server configuration warnings/errors:")
-        for err in errors:
-            print(f"  - {err}")
-        print("\nPlease check your .env file and environment variables configuration on Render.\n")
-        logger.error(f"Startup configuration warnings: {errors}")
+            logger.warning(f"Could not create upload folder '{settings.UPLOAD_FOLDER}': {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

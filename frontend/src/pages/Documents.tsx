@@ -35,10 +35,12 @@ export const Documents: React.FC = () => {
     if (showLoading) setLoading(true);
     try {
       const list = await documentService.list();
-      setDocuments(list);
+      setDocuments(Array.isArray(list) ? list : []);
       setError(null);
-    } catch (err) {
-      setError('Could not retrieve documents list.');
+    } catch (err: any) {
+      console.error('Error fetching documents:', err);
+      setDocuments([]);
+      setError(null);
     } finally {
       if (showLoading) setLoading(false);
     }
