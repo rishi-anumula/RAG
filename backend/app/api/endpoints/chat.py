@@ -29,6 +29,61 @@ class MessageFeedbackRequest(BaseModel):
     message_id: str
     feedback: Optional[str]  # 'liked', 'disliked', or null
 
+def rank_chunks_by_query(query: str, chunks: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
+    """
+    Ranks text chunks based on term relevance to the user's query.
+    Ensures different questions receive query-specific document sections.
+    """
+    if not chunks:
+        return []
+
+    stopwords = {
+        "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", "aren't",
+        "as", "at", "be", "because", "been", "before", "being", "below", "between", "both", "but", "by", "can't",
+        "cannot", "could", "couldn't", "did", "didn't", "do", "does", "doesn't", "doing", "don't", "down", "during",
+        "each", "few", "for", "from", "further", "had", "hadn't", "has", "hasn't", "have", "haven't", "having", "he",
+        "he'd", "he'll", "he's", "her", "here", "here's", "hers", "herself", "him", "himself", "his", "how", "how's",
+        "i", "i'd", "i'll", "i'm", "i've", "if", "in", "into", "is", "isn't", "it", "it's", "its", "itself", "let's",
+        "me", "more", "most", "mustn't", "my", "myself", "no", "nor", "not", "of", "off", "on", "once", "only", "or",
+        "other", "ought", "our", "ours", "ourselves", "out", "over", "own", "same", "shan't", "she", "she'd", "she'll",
+        "she's", "should", "shouldn't", "so", "some", "such", "than", "that", "that's", "the", "their", "theirs",
+        "them", "themselves", "then", "there", "there's", "these", "they", "they'd", "they'll", "they're", "they've",
+        "this", "those", "through", "to", "too", "under", "until", "up", "very", "was", "wasn't", "we", "we'd", "we'll",
+        "we're", "we've", "were", "weren't", "what", "what's", "when", "when's", "where", "where's", "which", "while",
+        "who", "who's", "whom", "why", "why's", "with", "won't", "would", "wouldn't", "you", "you'd", "you'll", "you're",
+        "you've", "your", "yours", "yourself", "yourselves"
+    }
+    import re
+    query_tokens = [w.lower() for w in re.findall(r'\b\w+\b', query) if w.lower() not in stopwords]
+    if not query_tokens:
+        query_tokens = [w.lower() for w in re.findall(r'\b\w+\b', query)]
+
+    scored = []
+    for c in chunks:
+        text = c.get("text") or c.get("chunk") or ""
+        text_lower = text.lower()
+        
+        score = 0.0
+        for token in query_tokens:
+            count = text_lower.count(token)
+            if count > 0:
+                score += 1.0 + (0.2 * (count - 1))
+                
+        scored.append({
+            "chunk": c,
+            "score": score
+        })
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    top_matched = [s["chunk"] for s in scored if s["score"] > 0]
+    
+    if len(top_matched) < top_k:
+        needed = top_k - len(top_matched)
+        unmatched = [s["chunk"] for s in scored if s["chunk"] not in top_matched]
+        top_matched.extend(unmatched[:needed])
+        
+    return top_matched[:top_k]
+
 @router.post("", status_code=status.HTTP_200_OK)
 def send_chat_message(
     payload: MessageRequest,
@@ -108,9 +163,9 @@ def send_chat_message(
     retrieval_time = time.time() - retrieval_start
     logger.info(f"Context retrieval finished in {retrieval_time:.4f}s. Found {len(relevant_chunks)} chunks.")
 
-    # Dynamic Fallback: If vector store query returned 0 chunks, dynamically extract text from user's document(s)
+    # Dynamic Fallback: If vector store query returned 0 chunks, dynamically extract text and rank by query relevance
     if not relevant_chunks:
-        logger.info(f"Vector store returned 0 chunks for user {current_user.id}. Executing dynamic document text extraction fallback...")
+        logger.info(f"Vector store returned 0 chunks for user {current_user.id}. Executing dynamic query-ranked text extraction fallback...")
         try:
             def get_user_docs_primary():
                 return supabase.table("documents").select("*").eq("user_id", current_user.id).execute().data
@@ -121,6 +176,7 @@ def send_chat_message(
             if payload.document_ids:
                 user_docs = [d for d in user_docs if d.get("id") in payload.document_ids]
 
+            all_extracted_chunks = []
             for doc in user_docs[:3]:
                 user_upload_dir = os.path.join(settings.UPLOAD_FOLDER, str(current_user.id))
                 local_file_path = os.path.join(user_upload_dir, doc["name"])
@@ -139,20 +195,31 @@ def send_chat_message(
                 if os.path.exists(local_file_path):
                     try:
                         extracted = pdf_service.extract_and_chunk(local_file_path)
-                        for c in extracted[:10]:
-                            relevant_chunks.append({
-                                "chunk": c["text"],
-                                "metadata": {
-                                    "user_id": current_user.id,
-                                    "document_id": doc["id"],
-                                    "filename": doc["name"],
-                                    "page": c["page"],
-                                    "chunk_number": c["chunk_index"]
-                                },
-                                "similarity": 0.85
+                        for c in extracted:
+                            all_extracted_chunks.append({
+                                "text": c["text"],
+                                "page": c["page"],
+                                "chunk_index": c["chunk_index"],
+                                "doc_id": doc["id"],
+                                "doc_name": doc["name"]
                             })
                     except Exception as ex_err:
                         logger.warning(f"Dynamic text extraction failed for {doc['name']}: {ex_err}")
+
+            if all_extracted_chunks:
+                ranked = rank_chunks_by_query(payload.message, all_extracted_chunks, top_k=5)
+                for r in ranked:
+                    relevant_chunks.append({
+                        "chunk": r["text"],
+                        "metadata": {
+                            "user_id": current_user.id,
+                            "document_id": r["doc_id"],
+                            "filename": r["doc_name"],
+                            "page": r["page"],
+                            "chunk_number": r["chunk_index"]
+                        },
+                        "similarity": 0.88
+                    })
         except Exception as fb_err:
             logger.warning(f"Dynamic document text extraction fallback failed: {fb_err}")
 

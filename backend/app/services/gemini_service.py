@@ -60,29 +60,29 @@ class GeminiService:
 
         # System Instructions
         system_instruction = (
-            "You are an AI assistant.\n"
-            "Answer ONLY using the provided context. Never use your own knowledge.\n"
-            "If the answer does not exist in the provided context, respond EXACTLY with:\n"
-            "\"I couldn't find this information in the uploaded documents.\"\n"
-            "Do not try to make up, extrapolate, or use outside knowledge to answer.\n"
-            "Include the source document name and page number whenever possible as inline or end-of-text citations."
+            "You are an expert AI Assistant specializing in Document Analysis and Retrieval-Augmented Generation (RAG).\n"
+            "Your task is to answer the USER QUERY directly, accurately, and thoroughly using the provided CONTEXT.\n"
+            "Guidelines:\n"
+            "1. Answer specifically what the user asked. Do not repeat a fixed template or generic response.\n"
+            "2. Base your response on the provided document context, citing the relevant source document name and page number.\n"
+            "3. If the context covers part of the query, provide that information clearly.\n"
+            "4. Keep your answer helpful, structured, and easy to read."
         )
 
         # Build prompt
-        prompt = f"SYSTEM INSTRUCTION:\n{system_instruction}\n\n"
-        prompt += f"CONTEXT:\n{context_str}\n\n"
+        prompt = f"{system_instruction}\n\n"
+        prompt += f"DOCUMENT CONTEXT:\n{context_str}\n\n"
         
         # Add chat history if present
         if chat_history and len(chat_history) > 0:
             prompt += "CONVERSATION HISTORY:\n"
-            # Take only the last 10 messages to avoid context window explosion
             for msg in chat_history[-10:]:
                 role = "User" if msg.get("role") == "user" else "Assistant"
                 prompt += f"{role}: {msg.get('content')}\n"
             prompt += "\n"
 
         prompt += f"USER QUERY: {query}\n"
-        prompt += "YOUR ANSWER (Strictly follow system instructions):"
+        prompt += "YOUR RESPONSE:"
 
         # Call Gemini with retry logic
         delay = 1.0
