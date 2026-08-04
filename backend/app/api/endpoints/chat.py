@@ -1,7 +1,7 @@
 import os
 import time
 import uuid
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from app.core.config import settings

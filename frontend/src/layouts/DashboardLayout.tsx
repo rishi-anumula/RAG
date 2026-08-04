@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 import { 
   LayoutDashboard, 
   FileText, 
@@ -7,11 +8,13 @@ import {
   Settings as SettingsIcon, 
   BookOpen,
   Menu,
-  X
+  X,
+  LogOut
 } from 'lucide-react';
 
 export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
+  const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
 
   const navigation = [
@@ -20,7 +23,6 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     { name: 'Chat', href: '/chat', icon: MessageSquare },
     { name: 'Settings', href: '/settings', icon: SettingsIcon },
   ];
-
 
   const isActive = (path: string) => {
     return location.pathname === path;
@@ -87,15 +89,22 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           </nav>
         </div>
 
-        {/* User Info & Public Mode Indicator */}
+        {/* User Profile & Log Out */}
         <div className="p-4 border-t border-dark-800">
           <div className="flex items-center justify-between px-2 py-1">
             <div className="overflow-hidden pr-2">
-              <p className="text-xs text-dark-500 font-medium">Active Profile</p>
-              <p className="text-sm font-semibold text-brand-400 truncate" title="Public Guest Mode">
-                Guest Account
+              <p className="text-[10px] uppercase font-bold text-dark-500 tracking-wider">Active Profile</p>
+              <p className="text-xs font-semibold text-brand-400 truncate" title={user?.email || 'Guest User'}>
+                {user?.email || 'guest@example.com'}
               </p>
             </div>
+            <button 
+              onClick={logout} 
+              className="p-2 hover:bg-red-500/10 text-dark-400 hover:text-red-400 rounded-xl transition-colors"
+              title="Log Out"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </aside>
