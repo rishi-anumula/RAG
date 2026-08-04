@@ -164,9 +164,10 @@ export const Chat: React.FC = () => {
           res.message
         ];
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error sending message:', err);
-      alert('Could not generate chat answer. Please check your Gemini backend configuration.');
+      const detailMsg = err?.response?.data?.detail || err?.message || 'Could not generate chat answer. Please check your network or backend configuration.';
+      alert(`Chat Error: ${detailMsg}`);
     } finally {
       setLoading(false);
     }
