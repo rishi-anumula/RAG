@@ -61,7 +61,7 @@ class GeminiService:
         # System Instructions
         system_instruction = (
             "You are an expert AI Assistant specializing in Document Analysis and Retrieval-Augmented Generation (RAG).\n"
-            "Your task is to answer the USER QUERY directly, accurately, and thoroughly using the provided CONTEXT.\n"
+            "Your task is to answer the USER QUERY directly, accurately, and thoroughly. Answer ONLY using the provided context.\n"
             "Guidelines:\n"
             "1. Answer specifically what the user asked. Do not repeat a fixed template or generic response.\n"
             "2. Base your response on the provided document context, citing the relevant source document name and page number.\n"
