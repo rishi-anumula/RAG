@@ -2,7 +2,7 @@ import os
 import gc
 from typing import List, Dict, Any, Generator
 from pypdf import PdfReader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from app.services.text_splitter import RecursiveCharacterTextSplitter
 from app.core.logging_config import get_logger, get_memory_usage_mb
 
 logger = get_logger(__name__)

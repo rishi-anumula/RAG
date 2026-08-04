@@ -3,8 +3,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.py": {
-      "includeFiles": "backend/**",
-      "excludeFiles": "{frontend/**,node_modules/**,frontend/node_modules/**,dist/**,chroma_db/**,uploads/**}"
+      "includeFiles": "backend/**"
     }
   },
   "rewrites": [

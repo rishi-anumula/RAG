@@ -7,9 +7,11 @@
 .vercel
 .vercel/
 
-# Python virtual environment and cache
+# Python virtual environment, scratch pip, and cache
 venv/
 .venv/
+scratch_pip/
+scratch/
 __pycache__/
 *.py[cod]
 *$py.class
