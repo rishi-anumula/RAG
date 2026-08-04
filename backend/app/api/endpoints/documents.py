@@ -214,9 +214,16 @@ def upload_document(
     except Exception as dup_err:
         logger.warning(f"[UPLOAD DUP CHECK WARNING] {dup_err}")
 
-    # Make local upload directory path
-    user_upload_dir = os.path.join(settings.UPLOAD_FOLDER, str(current_user.id))
-    os.makedirs(user_upload_dir, exist_ok=True)
+    # Make local upload directory path (with safe /tmp fallback for serverless environments)
+    upload_base = "/tmp/uploads" if (os.getenv("VERCEL") or "tmp" in settings.UPLOAD_FOLDER.lower()) else settings.UPLOAD_FOLDER
+    user_upload_dir = os.path.join(upload_base, str(current_user.id))
+    try:
+        os.makedirs(user_upload_dir, exist_ok=True)
+    except Exception as dir_err:
+        logger.warning(f"Could not create {user_upload_dir}, falling back to /tmp/uploads: {dir_err}")
+        user_upload_dir = os.path.join("/tmp/uploads", str(current_user.id))
+        os.makedirs(user_upload_dir, exist_ok=True)
+
     local_file_path = os.path.join(user_upload_dir, filename)
     
     # Stream file directly to disk in 1MB chunks (Memory Optimization: Avoid loading full file bytes into RAM)

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str = Field(default="")
     SECRET_KEY: str = Field(default="fallback_secret_key_for_development_only_change_in_prod")
     DATABASE_URL: str = Field(default="")
-    UPLOAD_FOLDER: str = Field(default="/tmp/uploads" if os.getenv("VERCEL") else "./uploads")
+    UPLOAD_FOLDER: str = Field(default="/tmp/uploads")
     FRONTEND_URL: str = Field(default="")
     
     HOST: str = Field(default="0.0.0.0")
