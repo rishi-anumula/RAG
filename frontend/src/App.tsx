@@ -6,6 +6,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Documents } from './pages/Documents';
 import { DocumentOutput } from './pages/DocumentOutput';
 import { Chat } from './pages/Chat';
+import { Profile } from './pages/Profile';
 import { Settings } from './pages/Settings';
 import { DashboardLayout } from './layouts/DashboardLayout';
 
@@ -78,6 +79,16 @@ function AppRoutes() {
           <ProtectedRoute>
             <DashboardLayout>
               <Chat />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout>
+              <Profile />
             </DashboardLayout>
           </ProtectedRoute>
         }

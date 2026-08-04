@@ -6,6 +6,7 @@ import {
   FileText, 
   MessageSquare, 
   Settings as SettingsIcon, 
+  User,
   BookOpen,
   Menu,
   X,
@@ -21,6 +22,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Documents', href: '/documents', icon: FileText },
     { name: 'Chat', href: '/chat', icon: MessageSquare },
+    { name: 'Profile', href: '/profile', icon: User },
     { name: 'Settings', href: '/settings', icon: SettingsIcon },
   ];
 
