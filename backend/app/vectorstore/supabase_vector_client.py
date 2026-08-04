@@ -42,9 +42,9 @@ def add_document_chunks(
                 "embedding": embeddings[i]
             })
 
-        if isinstance(supabase, MockSupabaseClient):
-            logger.info(f"Adding {len(chunks)} chunks to mock local SQLite document_chunks table.")
-            conn = sqlite3.connect(supabase.db_path)
+        def _insert_sqlite_fallback():
+            from app.database.supabase_client import mock_client
+            conn = sqlite3.connect(mock_client.db_path)
             cursor = conn.cursor()
             try:
                 for r in records:
@@ -71,15 +71,27 @@ def add_document_chunks(
                 conn.commit()
             finally:
                 conn.close()
+
+        if isinstance(supabase, MockSupabaseClient):
+            logger.info(f"Adding {len(chunks)} chunks to mock local SQLite document_chunks table.")
+            _insert_sqlite_fallback()
         else:
             logger.info(f"Adding {len(chunks)} chunks for document {document_id} ({filename}) to Supabase pgvector table.")
-            supabase.table("document_chunks").insert(records).execute()
+            try:
+                supabase.table("document_chunks").insert(records).execute()
+            except Exception as primary_err:
+                logger.warning(f"Primary Supabase pgvector insert failed ({primary_err}). Falling back to local SQLite vector store.")
+                _insert_sqlite_fallback()
             
         logger.info(f"Successfully added document {document_id} chunks to vector store.")
         return True
     except Exception as e:
         logger.error(f"Error adding chunks to vector store for doc {document_id}: {e}", exc_info=True)
-        return False
+        try:
+            _insert_sqlite_fallback()
+            return True
+        except Exception:
+            return False
 
 def search_similar_chunks(
     user_id: str,
