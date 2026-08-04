@@ -310,20 +310,65 @@ def get_document_output(
 ):
     """
     Get detailed output, page chunks, vector info, and extracted content for a specific document.
+    Includes automatic fallback queries, cloud storage cache retrieval, and dynamic text extraction.
     """
     supabase = get_supabase_client()
     
-    db_check = supabase.table("documents").select("*").eq("id", document_id).eq("user_id", current_user.id).execute()
-    if not db_check.data:
+    # 1. Query document metadata with primary/fallback resilience
+    def get_doc_primary():
+        res = supabase.table("documents").select("*").eq("id", document_id).eq("user_id", current_user.id).execute()
+        return res.data
+        
+    def get_doc_fallback():
+        from app.database.supabase_client import mock_client
+        res = mock_client.table("documents").select("*").eq("id", document_id).eq("user_id", current_user.id).execute()
+        return res.data
+
+    try:
+        doc_data = safe_supabase_query(get_doc_primary, get_doc_fallback, timeout_seconds=4.0)
+    except Exception as e:
+        logger.error(f"Error fetching document metadata for {document_id}: {e}")
+        doc_data = None
+
+    if not doc_data:
         raise HTTPException(status_code=404, detail="Document not found.")
         
-    doc_record = db_check.data[0]
-    chunks_res = supabase.table("document_chunks").select("*").eq("document_id", document_id).eq("user_id", current_user.id).execute()
-    chunks = chunks_res.data or []
-    
+    doc_record = doc_data[0]
+
+    # 2. Query document chunks with primary/fallback resilience
+    def get_chunks_primary():
+        res = supabase.table("document_chunks").select("*").eq("document_id", document_id).eq("user_id", current_user.id).execute()
+        return res.data or []
+
+    def get_chunks_fallback():
+        from app.database.supabase_client import mock_client
+        res = mock_client.table("document_chunks").select("*").eq("document_id", document_id).eq("user_id", current_user.id).execute()
+        return res.data or []
+
+    try:
+        chunks = safe_supabase_query(get_chunks_primary, get_chunks_fallback, timeout_seconds=4.0)
+    except Exception as e:
+        logger.warning(f"Error fetching chunks from DB for document {document_id}: {e}")
+        chunks = []
+
+    # 3. If chunks DB table returns empty, attempt on-the-fly text extraction from local file or cloud storage
     if not chunks:
         user_upload_dir = os.path.join(settings.UPLOAD_FOLDER, str(current_user.id))
         local_file_path = os.path.join(user_upload_dir, doc_record["name"])
+        
+        # Download from Supabase storage if file is not cached on serverless disk
+        if not os.path.exists(local_file_path) and doc_record.get("storage_path"):
+            try:
+                logger.info(f"Local file cache missed for output view. Downloading {doc_record['name']} from storage...")
+                os.makedirs(user_upload_dir, exist_ok=True)
+                bucket = supabase.storage.from_("pdfs")
+                download_bytes = bucket.download(doc_record["storage_path"])
+                if download_bytes:
+                    with open(local_file_path, "wb") as f:
+                        f.write(download_bytes)
+            except Exception as dl_err:
+                logger.warning(f"Could not download PDF from storage for output preview: {dl_err}")
+
         if os.path.exists(local_file_path):
             try:
                 extracted = pdf_service.extract_and_chunk(local_file_path)
@@ -335,8 +380,8 @@ def get_document_output(
                     "content": c["text"],
                     "filename": doc_record["name"]
                 } for c in extracted]
-            except Exception as e:
-                logger.warning(f"Could not extract preview text: {e}")
+            except Exception as ex_err:
+                logger.warning(f"Could not extract preview text from file: {ex_err}")
 
     return {
         "document": doc_record,
