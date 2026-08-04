@@ -26,6 +26,11 @@ export interface LoginCredentials {
   password?: string;
 }
 
+export interface ChangePasswordCredentials {
+  current_password: string;
+  new_password: string;
+}
+
 export type SignupCredentials = LoginCredentials;
 
 export interface Document {

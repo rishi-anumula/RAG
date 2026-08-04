@@ -100,6 +100,62 @@ def login(payload: AuthRequest):
             detail="Invalid email or password."
         )
 
+from typing import Any
+from fastapi import Depends
+from app.core.security import get_current_user
+from app.database.supabase_client import MockSupabaseClient
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+@router.post("/change-password")
+def change_password(
+    payload: ChangePasswordRequest,
+    current_user: Any = Depends(get_current_user)
+):
+    """
+    Updates the password for the current authenticated user.
+    """
+    logger.info(f"Received change password request for user: {current_user.id}")
+    supabase = get_supabase_client(use_service_role=False)
+    
+    if isinstance(supabase, MockSupabaseClient):
+        try:
+            supabase.auth.update_password(
+                user_id=current_user.id,
+                email=current_user.email,
+                current_pass=payload.current_password,
+                new_pass=payload.new_password
+            )
+            return {"message": "Password updated successfully."}
+        except Exception as e:
+            logger.warning(f"Mock password update failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    else:
+        try:
+            try:
+                supabase.auth.sign_in_with_password({
+                    "email": current_user.email,
+                    "password": payload.current_password
+                })
+            except Exception:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Current password is incorrect."
+                )
+                
+            supabase.auth.update_user({"password": payload.new_password})
+            logger.info(f"Password updated successfully for user: {current_user.id}")
+            return {"message": "Password updated successfully."}
+        except HTTPException:
+            raise
+        except Exception as e:
+            handle_exception(e)
+
 @router.post("/forgot-password")
 def forgot_password(payload: ForgotPasswordRequest):
     """

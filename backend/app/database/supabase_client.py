@@ -375,6 +375,27 @@ class MockAuth:
             pass
         return ResetResponse()
 
+    def update_password(self, user_id: str, email: str, current_pass: str, new_pass: str):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT id, password FROM users WHERE id = ? OR email = ?", (user_id, email))
+            row = cursor.fetchone()
+            if row and row[1]:
+                if row[1] != current_pass:
+                    raise Exception("Current password is incorrect.")
+                cursor.execute("UPDATE users SET password = ? WHERE id = ? OR email = ?", (new_pass, user_id, email))
+            else:
+                created_at = datetime.utcnow().isoformat() + "Z"
+                cursor.execute(
+                    "INSERT OR REPLACE INTO users (id, email, password, created_at) VALUES (?, ?, ?, ?)",
+                    (user_id, email, new_pass, created_at)
+                )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
 class MockSupabaseClient:
     def __init__(self):
         # Create database file under the designated uploads folder or /tmp

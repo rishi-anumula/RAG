@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { documentService } from '../services/documentService';
+import { authService } from '../services/authService';
 import type { Document } from '../types';
 import { 
   Mail, 
@@ -66,14 +67,20 @@ export const Profile: React.FC = () => {
 
     setPasswordLoading(true);
     try {
-      // Simulate password change success
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      setPasswordSuccess('Password updated successfully!');
+      const res = await authService.changePassword({
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+      setPasswordSuccess(res.message || 'Password updated successfully!');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch (err: any) {
-      setPasswordError('Failed to update password. Please verify your current password.');
+      const errorMessage =
+        err.response?.data?.detail ||
+        err.message ||
+        'Failed to update password. Please verify your current password.';
+      setPasswordError(errorMessage);
     } finally {
       setPasswordLoading(false);
     }

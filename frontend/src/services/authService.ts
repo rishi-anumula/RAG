@@ -1,5 +1,5 @@
 import api from './api';
-import type { LoginCredentials, SignupCredentials, AuthResponse, BaseResponse } from '../types';
+import type { LoginCredentials, SignupCredentials, ChangePasswordCredentials, AuthResponse, BaseResponse } from '../types';
 
 export const authService = {
   async signup(credentials: SignupCredentials): Promise<AuthResponse> {
@@ -19,6 +19,11 @@ export const authService = {
   logout(): void {
     localStorage.removeItem('rag_token');
     localStorage.removeItem('rag_user');
+  },
+
+  async changePassword(credentials: ChangePasswordCredentials): Promise<BaseResponse> {
+    const response = await api.post<BaseResponse>('/auth/change-password', credentials);
+    return response.data;
   },
 
   async forgotPassword(email: string): Promise<BaseResponse> {
