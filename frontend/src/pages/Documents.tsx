@@ -122,7 +122,14 @@ export const Documents: React.FC = () => {
         fetchDocuments(false);
       } catch (err: any) {
         setUploadingFiles(prev => prev.filter(item => item.name !== file.name));
-        alert(err.response?.data?.detail || `Failed to upload ${file.name}.`);
+        const status = err?.response?.status;
+        let detail = err?.response?.data?.detail || err?.message;
+        if (status === 413 || (detail && detail.toLowerCase().includes('large'))) {
+          detail = `File "${file.name}" exceeds the server payload size limit. Please upload a smaller PDF or compress the file.`;
+        } else if (!detail) {
+          detail = `Failed to upload "${file.name}". Please verify your network connection and try again.`;
+        }
+        alert(detail);
       }
     }
   };

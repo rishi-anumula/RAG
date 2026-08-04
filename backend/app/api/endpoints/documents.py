@@ -17,8 +17,8 @@ from app.vectorstore.supabase_vector_client import add_document_chunks, delete_d
 logger = get_logger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-# Max PDF Size: 10 MB (Memory efficiency limit for Render Free Tier)
-MAX_FILE_SIZE = 10 * 1024 * 1024
+# Max PDF Size: 50 MB
+MAX_FILE_SIZE = 50 * 1024 * 1024
 # Batch processing size for chunk embedding generation and database insertion
 BATCH_SIZE = 20
 
