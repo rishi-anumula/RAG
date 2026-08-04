@@ -1,14 +1,17 @@
+import os
 import time
 import uuid
 from typing import List, Optional, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from app.core.config import settings
 from app.core.security import get_current_user
 from app.core.logging_config import get_logger
 from app.database.supabase_client import get_supabase_client, safe_supabase_query, mock_client
 from app.embeddings.embedder import embedding_service
 from app.vectorstore.supabase_vector_client import search_similar_chunks
 from app.services.gemini_service import gemini_service
+from app.services.pdf_service import pdf_service
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -104,6 +107,54 @@ def send_chat_message(
         
     retrieval_time = time.time() - retrieval_start
     logger.info(f"Context retrieval finished in {retrieval_time:.4f}s. Found {len(relevant_chunks)} chunks.")
+
+    # Dynamic Fallback: If vector store query returned 0 chunks, dynamically extract text from user's document(s)
+    if not relevant_chunks:
+        logger.info(f"Vector store returned 0 chunks for user {current_user.id}. Executing dynamic document text extraction fallback...")
+        try:
+            def get_user_docs_primary():
+                return supabase.table("documents").select("*").eq("user_id", current_user.id).execute().data
+            def get_user_docs_fallback():
+                return mock_client.table("documents").select("*").eq("user_id", current_user.id).execute().data
+
+            user_docs = safe_supabase_query(get_user_docs_primary, get_user_docs_fallback, timeout_seconds=3.0) or []
+            if payload.document_ids:
+                user_docs = [d for d in user_docs if d.get("id") in payload.document_ids]
+
+            for doc in user_docs[:3]:
+                user_upload_dir = os.path.join(settings.UPLOAD_FOLDER, str(current_user.id))
+                local_file_path = os.path.join(user_upload_dir, doc["name"])
+
+                if not os.path.exists(local_file_path) and doc.get("storage_path"):
+                    try:
+                        os.makedirs(user_upload_dir, exist_ok=True)
+                        bucket = supabase.storage.from_("pdfs")
+                        download_bytes = bucket.download(doc["storage_path"])
+                        if download_bytes:
+                            with open(local_file_path, "wb") as f:
+                                f.write(download_bytes)
+                    except Exception as dl_err:
+                        logger.warning(f"Could not download document {doc['name']} from storage: {dl_err}")
+
+                if os.path.exists(local_file_path):
+                    try:
+                        extracted = pdf_service.extract_and_chunk(local_file_path)
+                        for c in extracted[:10]:
+                            relevant_chunks.append({
+                                "chunk": c["text"],
+                                "metadata": {
+                                    "user_id": current_user.id,
+                                    "document_id": doc["id"],
+                                    "filename": doc["name"],
+                                    "page": c["page"],
+                                    "chunk_number": c["chunk_index"]
+                                },
+                                "similarity": 0.85
+                            })
+                    except Exception as ex_err:
+                        logger.warning(f"Dynamic text extraction failed for {doc['name']}: {ex_err}")
+        except Exception as fb_err:
+            logger.warning(f"Dynamic document text extraction fallback failed: {fb_err}")
 
     # 3. Fetch past messages for conversation history
     chat_history = []
