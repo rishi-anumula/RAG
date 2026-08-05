@@ -45,4 +45,6 @@ def mock_supabase_client(monkeypatch):
     
     monkeypatch.setattr("app.database.supabase_client.supabase_anon", mock_client)
     monkeypatch.setattr("app.database.supabase_client.supabase_service", mock_client)
+    monkeypatch.setattr("app.database.supabase_client.get_supabase_client", lambda use_service_role=False: mock_client)
+    monkeypatch.setattr("app.api.endpoints.auth.get_supabase_client", lambda use_service_role=False: mock_client)
     return mock_client
