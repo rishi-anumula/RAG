@@ -1,5 +1,5 @@
-import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { 
   LayoutDashboard, 
@@ -15,8 +15,9 @@ import {
 
 export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = React.useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -101,7 +102,10 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
               </p>
             </div>
             <button 
-              onClick={logout} 
+              onClick={() => {
+                logout();
+                navigate('/');
+              }} 
               className="p-2 hover:bg-red-500/10 text-dark-400 hover:text-red-400 rounded-xl transition-colors"
               title="Log Out"
             >

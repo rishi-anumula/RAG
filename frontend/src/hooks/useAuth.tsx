@@ -23,17 +23,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const savedUser = authService.getCurrentUser();
     const token = localStorage.getItem('rag_token');
 
-    if (savedUser && token) {
+    // Clean up any stale guest token leftover from previous auto-login behavior
+    if (token === 'mock-guest-token') {
+      localStorage.removeItem('rag_token');
+      localStorage.removeItem('rag_user');
+      setUser(null);
+    } else if (savedUser && token) {
       setUser(savedUser);
     } else {
-      // Default auto-login as guest for seamless access if no token exists
-      const guestUser: User = { 
-        id: '00000000-0000-0000-0000-000000000000', 
-        email: 'guest@example.com' 
-      };
-      localStorage.setItem('rag_token', 'mock-guest-token');
-      localStorage.setItem('rag_user', JSON.stringify(guestUser));
-      setUser(guestUser);
+      setUser(null);
     }
     setLoading(false);
   }, []);

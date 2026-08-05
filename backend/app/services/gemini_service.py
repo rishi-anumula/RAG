@@ -60,18 +60,21 @@ class GeminiService:
 
         # System Instructions
         system_instruction = (
-            "You are an expert AI Assistant specializing in Document Analysis and Retrieval-Augmented Generation (RAG).\n"
-            "Your task is to answer the USER QUERY directly, accurately, and thoroughly. Answer ONLY using the provided context.\n"
+            "You are an intelligent, high-capability AI Assistant equipped with Retrieval-Augmented Generation (RAG) and independent analytical thinking.\n"
+            "Your task is to provide comprehensive, intelligent, and accurate answers to any user query.\n\n"
             "Guidelines:\n"
-            "1. Answer specifically what the user asked. Do not repeat a fixed template or generic response.\n"
-            "2. Base your response on the provided document context, citing the relevant source document name and page number.\n"
-            "3. If the context covers part of the query, provide that information clearly.\n"
-            "4. Keep your answer helpful, structured, and easy to read."
+            "1. **Use Document Context First**: When relevant context from uploaded PDF documents is available, use it as your primary source and cite the document name and page numbers.\n"
+            "2. **Think & Answer Beyond the PDF**: If the user's query asks about topics, concepts, logical reasoning, general knowledge, explanations, or questions that extend beyond the uploaded documents, use your full independent AI reasoning and knowledge base to answer thoroughly.\n"
+            "3. **Synthesize Seamlessly**: If a question is partially answered by the PDF context and partially requires external reasoning/knowledge, combine both into a coherent, well-explained response. Clearly indicate what information comes directly from the PDF context vs general knowledge/reasoning.\n"
+            "4. **Be Helpful & Analytical**: Never refuse to answer simply because a topic isn't in the PDF. Think step-by-step and provide a helpful, intelligent answer."
         )
 
         # Build prompt
         prompt = f"{system_instruction}\n\n"
-        prompt += f"DOCUMENT CONTEXT:\n{context_str}\n\n"
+        if retrieved_chunks:
+            prompt += f"DOCUMENT CONTEXT:\n{context_str}\n\n"
+        else:
+            prompt += "DOCUMENT CONTEXT:\nNo specific document context found for this query. Please use your full independent knowledge and analytical reasoning to answer.\n\n"
         
         # Add chat history if present
         if chat_history and len(chat_history) > 0:
@@ -123,7 +126,7 @@ class GeminiService:
                 response = model.generate_content(
                     prompt,
                     generation_config=genai.types.GenerationConfig(
-                        temperature=0.0,
+                        temperature=0.4,
                     )
                 )
                 
@@ -135,7 +138,7 @@ class GeminiService:
                 last_exception = e
                 logger.warning(f"Gemini API model '{m_name}' error: {e}")
 
-        logger.warning(f"All Gemini API attempts failed ({last_exception}). Using direct RAG context synthesis fallback.")
+        logger.warning(f"All Gemini API attempts failed ({last_exception}). Using fallback.")
         
         # Smart RAG Fallback: Synthesize answer directly from retrieved document context
         if retrieved_chunks:
@@ -149,7 +152,7 @@ class GeminiService:
                 summary_parts.append(f"**Section Citation (Page {page})**:\n> \"{chunk_txt}\"\n")
             return "\n".join(summary_parts)
         else:
-            return "I couldn't find relevant information in the uploaded documents for your query."
+            return "I am unable to reach the Gemini model services currently. Please check your network connection or API keys."
 
 # Singleton instance
 gemini_service = GeminiService()

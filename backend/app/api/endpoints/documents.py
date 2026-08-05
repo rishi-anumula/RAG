@@ -17,8 +17,8 @@ from app.vectorstore.supabase_vector_client import add_document_chunks, delete_d
 logger = get_logger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-# Max PDF Size: 50 MB
-MAX_FILE_SIZE = 50 * 1024 * 1024
+# Max File Size: 1 GB (1024 MB)
+MAX_FILE_SIZE = getattr(settings, "MAX_FILE_SIZE_MB", 1024) * 1024 * 1024
 # Batch processing size for chunk embedding generation and database insertion
 BATCH_SIZE = 20
 
@@ -237,10 +237,10 @@ def upload_document(
                     buffer.close()
                     if os.path.exists(local_file_path):
                         os.remove(local_file_path)
-                    logger.warning(f"[UPLOAD ERROR] File size {file_size} exceeds 10MB limit.")
+                    logger.warning(f"[UPLOAD ERROR] File size {file_size} exceeds {getattr(settings, 'MAX_FILE_SIZE_MB', 1024)}MB limit.")
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="File is too large. Maximum allowed size is 10MB."
+                        detail=f"File is too large. Maximum allowed size is {getattr(settings, 'MAX_FILE_SIZE_MB', 1024)}MB (1GB)."
                     )
                 buffer.write(chunk)
         ram_after_save = get_memory_usage_mb()

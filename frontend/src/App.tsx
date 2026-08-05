@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { Login } from './pages/Login';
+import { LandingPage } from './pages/LandingPage';
 import { Dashboard } from './pages/Dashboard';
 import { Documents } from './pages/Documents';
 import { DocumentOutput } from './pages/DocumentOutput';
@@ -29,18 +30,13 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
-
   return (
     <Routes>
-      {/* Auth Page */}
-      <Route 
-        path="/login" 
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} 
-      />
+      {/* Landing Page */}
+      <Route path="/" element={<LandingPage />} />
 
-      {/* Default Root Route */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      {/* Auth Page */}
+      <Route path="/login" element={<Login />} />
 
       {/* Core Workspace Routes */}
       <Route
@@ -104,8 +100,8 @@ function AppRoutes() {
         }
       />
 
-      {/* Catch all unmatched routes */}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      {/* Catch all unmatched routes redirect to Landing Page */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

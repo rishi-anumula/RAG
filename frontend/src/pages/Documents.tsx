@@ -101,9 +101,9 @@ export const Documents: React.FC = () => {
     }
 
     for (const file of validFiles) {
-      // Limit to 100MB
-      if (file.size > 100 * 1024 * 1024) {
-        alert(`File ${file.name} is too large. Maximum size is 100MB.`);
+      // Limit to 1GB (1024MB)
+      if (file.size > 1024 * 1024 * 1024) {
+        alert(`File ${file.name} is too large. Maximum size is 1GB.`);
         continue;
       }
 

@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     HOST: str = Field(default="0.0.0.0")
     PORT: int = Field(default=8000)
     
-    # RAG Settings
+    # RAG & Memory Limits
+    MAX_FILE_SIZE_MB: int = Field(default=1024)
     EMBEDDING_MODEL_NAME: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
     GEMINI_MODEL_NAME: str = Field(default="gemini-2.0-flash")
     USE_LOCAL_EMBEDDINGS: bool = Field(default=False)
