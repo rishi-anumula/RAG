@@ -27,16 +27,35 @@ def init_local_db(db_path):
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS documents (
         id TEXT PRIMARY KEY,
+        document_id TEXT,
         user_id TEXT,
         name TEXT,
+        filename TEXT,
+        original_filename TEXT,
+        upload_time TEXT,
         size INTEGER,
         status TEXT,
         storage_path TEXT,
         error_message TEXT,
         chunk_count INTEGER,
-        created_at TEXT
+        created_at TEXT,
+        updated_at TEXT
     )
     """)
+    
+    # Safe column migrations for existing SQLite databases
+    new_cols = [
+        ("document_id", "TEXT"),
+        ("filename", "TEXT"),
+        ("original_filename", "TEXT"),
+        ("upload_time", "TEXT"),
+        ("updated_at", "TEXT")
+    ]
+    for col_name, col_type in new_cols:
+        try:
+            cursor.execute(f"ALTER TABLE documents ADD COLUMN {col_name} {col_type}")
+        except Exception:
+            pass
     
     # Create conversations table
     cursor.execute("""

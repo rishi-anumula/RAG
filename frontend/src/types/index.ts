@@ -35,14 +35,18 @@ export type SignupCredentials = LoginCredentials;
 
 export interface Document {
   id: string;
+  document_id?: string;
   user_id: string;
   name: string;
+  filename?: string;
+  original_filename?: string;
+  upload_time?: string;
   size: number;
   status: 'uploaded' | 'processing' | 'processed' | 'failed';
-  storage_path: string;
-  error_message: string | null;
+  storage_path?: string;
+  error_message?: string | null;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
 }
 
 export interface Citation {

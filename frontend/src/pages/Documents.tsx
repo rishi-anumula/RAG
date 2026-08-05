@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { documentService } from '../services/documentService';
 import type { Document } from '../types';
 import { 
@@ -15,9 +16,7 @@ import {
 } from 'lucide-react';
 
 export const Documents: React.FC = () => {
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   
   // Upload States
@@ -30,37 +29,29 @@ export const Documents: React.FC = () => {
   const [renameValue, setRenameValue] = useState('');
   const [renaming, setRenaming] = useState(false);
 
-  // Load documents
-  const fetchDocuments = async (showLoading = true) => {
-    if (showLoading) setLoading(true);
-    try {
-      const list = await documentService.list();
-      setDocuments(Array.isArray(list) ? list : []);
-      setError(null);
-    } catch (err: any) {
-      console.error('Error fetching documents:', err);
-      setDocuments([]);
-      setError(null);
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  };
+  // Task 7: Load documents using React Query with auto-polling for processing status
+  const { data: documents = [], isLoading: loading, error: queryError, refetch } = useQuery<Document[]>({
+    queryKey: ['documents'],
+    queryFn: () => documentService.list(),
+    refetchInterval: (query) => {
+      const docs = query.state.data;
+      const hasProcessing = Array.isArray(docs) && docs.some((d) => d.status === 'processing');
+      return hasProcessing ? 3000 : false;
+    },
+  });
 
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
+  const error = queryError ? (queryError as any).message || 'Failed to load documents' : null;
 
-  // Poll while any document is in 'processing' status
-  useEffect(() => {
-    const hasProcessing = documents.some(doc => doc.status === 'processing');
-    if (!hasProcessing) return;
-
-    const interval = setInterval(() => {
-      fetchDocuments(false);
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [documents]);
+  // Task 7: React Query Upload Mutation with Cache Invalidation
+  const uploadMutation = useMutation({
+    mutationFn: ({ file, onProgress }: { file: File; onProgress?: (p: number) => void }) =>
+      documentService.upload(file, onProgress),
+    onSuccess: () => {
+      // Automatically refresh the document list by invalidating React Query cache
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboardMetrics'] });
+    },
+  });
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -101,25 +92,24 @@ export const Documents: React.FC = () => {
     }
 
     for (const file of validFiles) {
-      // Limit to 1GB (1024MB)
       if (file.size > 1024 * 1024 * 1024) {
         alert(`File ${file.name} is too large. Maximum size is 1GB.`);
         continue;
       }
 
-      // Add to uploading list
       setUploadingFiles(prev => [...prev, { name: file.name, progress: 0 }]);
 
       try {
-        await documentService.upload(file, (progress) => {
-          setUploadingFiles(prev => 
-            prev.map(item => item.name === file.name ? { ...item, progress } : item)
-          );
+        await uploadMutation.mutateAsync({
+          file,
+          onProgress: (progress) => {
+            setUploadingFiles(prev => 
+              prev.map(item => item.name === file.name ? { ...item, progress } : item)
+            );
+          }
         });
         
-        // Remove from uploading list & refresh list
         setUploadingFiles(prev => prev.filter(item => item.name !== file.name));
-        fetchDocuments(false);
       } catch (err: any) {
         setUploadingFiles(prev => prev.filter(item => item.name !== file.name));
         const status = err?.response?.status;
@@ -136,13 +126,11 @@ export const Documents: React.FC = () => {
 
   const handleProcess = async (docId: string) => {
     try {
-      // Optimistically update status to trigger spinner
-      setDocuments(prev => prev.map(doc => doc.id === docId ? { ...doc, status: 'processing' } : doc));
       await documentService.process(docId);
-      // Wait for poller to catch status change
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Failed to start indexing.');
-      fetchDocuments(false);
+      refetch();
     }
   };
 
@@ -152,23 +140,26 @@ export const Documents: React.FC = () => {
     }
     try {
       await documentService.delete(docId);
-      setDocuments(prev => prev.filter(doc => doc.id !== docId));
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboardMetrics'] });
     } catch (err) {
       alert('Failed to delete document.');
     }
   };
 
   const openRenameModal = (doc: Document) => {
-    setRenameId(doc.id);
-    setRenameValue(doc.name.replace('.pdf', ''));
+    const docId = doc.id || doc.document_id || '';
+    const docName = doc.name || doc.filename || '';
+    setRenameId(docId);
+    setRenameValue(docName.replace(/\.pdf$/i, ''));
   };
 
   const handleRenameSubmit = async () => {
     if (!renameId || !renameValue.trim()) return;
     setRenaming(true);
     try {
-      const response = await documentService.rename(renameId, renameValue.trim());
-      setDocuments(prev => prev.map(doc => doc.id === renameId ? { ...doc, name: response.name } : doc));
+      await documentService.rename(renameId, renameValue.trim());
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
       setRenameId(null);
     } catch (err) {
       alert('Failed to rename document.');
@@ -187,9 +178,10 @@ export const Documents: React.FC = () => {
   };
 
   // Filter list by search query
-  const filteredDocuments = documents.filter(doc => 
-    doc.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredDocuments = (Array.isArray(documents) ? documents : []).filter(doc => {
+    const name = doc.name || doc.filename || '';
+    return name.toLowerCase().includes(searchQuery.toLowerCase());
+  });
 
   return (
     <div className="space-y-8">
@@ -281,7 +273,7 @@ export const Documents: React.FC = () => {
           <div className="flex items-center justify-between border-b border-dark-800 pb-4 mb-4">
             <h3 className="text-lg font-bold text-white">Document Inventory</h3>
             <button 
-              onClick={() => fetchDocuments()}
+              onClick={() => refetch()}
               className="p-2 hover:bg-dark-800 text-dark-400 hover:text-dark-100 rounded-xl transition-colors focus:outline-none"
               title="Refresh List"
             >
@@ -322,95 +314,100 @@ export const Documents: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-dark-800/60">
-                  {filteredDocuments.map((doc) => (
-                    <tr key={doc.id} className="group hover:bg-dark-900/20 transition-colors">
-                      {/* Name & Date */}
-                      <td className="py-4 pl-2 pr-4">
-                        <div className="flex items-center space-x-3">
-                          <FileText className={`h-5 w-5 shrink-0 ${doc.status === 'processed' ? 'text-brand-400' : 'text-dark-500'}`} />
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-dark-200 truncate max-w-[200px] md:max-w-[280px]" title={doc.name}>
-                              {doc.name}
-                            </p>
-                            <p className="text-[10px] text-dark-500 mt-0.5">
-                              Uploaded {new Date(doc.created_at).toLocaleDateString()}
-                            </p>
+                  {filteredDocuments.map((doc) => {
+                    const docId = doc.id || doc.document_id || '';
+                    const docName = doc.name || doc.filename || 'Untitled';
+                    const uploadDate = doc.upload_time || doc.created_at;
+                    return (
+                      <tr key={docId} className="group hover:bg-dark-900/20 transition-colors">
+                        {/* Name & Date */}
+                        <td className="py-4 pl-2 pr-4">
+                          <div className="flex items-center space-x-3">
+                            <FileText className={`h-5 w-5 shrink-0 ${doc.status === 'processed' ? 'text-brand-400' : 'text-dark-500'}`} />
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-dark-200 truncate max-w-[200px] md:max-w-[280px]" title={docName}>
+                                {docName}
+                              </p>
+                              <p className="text-[10px] text-dark-500 mt-0.5">
+                                Uploaded {uploadDate ? new Date(uploadDate).toLocaleDateString() : 'recently'}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* Size */}
-                      <td className="py-4 text-xs font-medium text-dark-400 hidden md:table-cell">
-                        {formatBytes(doc.size)}
-                      </td>
+                        {/* Size */}
+                        <td className="py-4 text-xs font-medium text-dark-400 hidden md:table-cell">
+                          {formatBytes(doc.size)}
+                        </td>
 
-                      {/* Status */}
-                      <td className="py-4">
-                        <div className="flex items-center space-x-1.5">
-                          <span className={`
-                            px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider
-                            ${doc.status === 'processed' ? 'bg-green-500/10 text-green-400 border border-green-500/10' : ''}
-                            ${doc.status === 'processing' ? 'bg-brand-500/10 text-brand-400 border border-brand-500/10 animate-pulse' : ''}
-                            ${doc.status === 'uploaded' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/10' : ''}
-                            ${doc.status === 'failed' ? 'bg-red-500/10 text-red-400 border border-red-500/10' : ''}
-                          `}>
-                            {doc.status}
-                          </span>
-                          
-                          {doc.status === 'failed' && doc.error_message && (
-                            <span className="text-red-400 hover:text-red-300 cursor-help" title={doc.error_message}>
-                              <AlertCircle className="h-4 w-4" />
+                        {/* Status */}
+                        <td className="py-4">
+                          <div className="flex items-center space-x-1.5">
+                            <span className={`
+                              px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider
+                              ${doc.status === 'processed' ? 'bg-green-500/10 text-green-400 border border-green-500/10' : ''}
+                              ${doc.status === 'processing' ? 'bg-brand-500/10 text-brand-400 border border-brand-500/10 animate-pulse' : ''}
+                              ${doc.status === 'uploaded' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/10' : ''}
+                              ${doc.status === 'failed' ? 'bg-red-500/10 text-red-400 border border-red-500/10' : ''}
+                            `}>
+                              {doc.status}
                             </span>
-                          )}
-                        </div>
-                      </td>
+                            
+                            {doc.status === 'failed' && doc.error_message && (
+                              <span className="text-red-400 hover:text-red-300 cursor-help" title={doc.error_message}>
+                                <AlertCircle className="h-4 w-4" />
+                              </span>
+                            )}
+                          </div>
+                        </td>
 
-                      {/* Actions */}
-                      <td className="py-4 text-right pr-2">
-                        <div className="flex items-center justify-end space-x-1">
-                          
-                          {/* View Output Page */}
-                          <Link
-                            to={`/documents/${doc.id}/output`}
-                            className="p-2 bg-brand-500/10 hover:bg-brand-500/20 text-brand-400 rounded-lg transition-colors border border-brand-500/15 flex items-center space-x-1 text-xs font-semibold"
-                            title="View Extracted Output Page"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                            <span className="hidden sm:inline">View Output</span>
-                          </Link>
-
-                          {/* Process trigger */}
-                          {doc.status === 'uploaded' && (
-                            <button
-                              onClick={() => handleProcess(doc.id)}
-                              className="p-2 hover:bg-amber-500/10 hover:text-amber-400 text-dark-400 rounded-lg transition-colors"
-                              title="Process & Index PDF"
+                        {/* Actions */}
+                        <td className="py-4 text-right pr-2">
+                          <div className="flex items-center justify-end space-x-1">
+                            
+                            {/* View Output Page */}
+                            <Link
+                              to={`/documents/${docId}/output`}
+                              className="p-2 bg-brand-500/10 hover:bg-brand-500/20 text-brand-400 rounded-lg transition-colors border border-brand-500/15 flex items-center space-x-1 text-xs font-semibold"
+                              title="View Extracted Output Page"
                             >
-                              <Play className="h-4 w-4" />
+                              <Eye className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">View Output</span>
+                            </Link>
+
+                            {/* Process trigger */}
+                            {doc.status === 'uploaded' && (
+                              <button
+                                onClick={() => handleProcess(docId)}
+                                className="p-2 hover:bg-amber-500/10 hover:text-amber-400 text-dark-400 rounded-lg transition-colors"
+                                title="Process & Index PDF"
+                              >
+                                <Play className="h-4 w-4" />
+                              </button>
+                            )}
+
+                            {/* Rename Document */}
+                            <button
+                              onClick={() => openRenameModal(doc)}
+                              className="p-2 hover:bg-dark-800 hover:text-dark-100 text-dark-400 rounded-lg transition-colors"
+                              title="Rename"
+                            >
+                              <Edit3 className="h-4 w-4" />
                             </button>
-                          )}
 
-                          {/* Rename Document */}
-                          <button
-                            onClick={() => openRenameModal(doc)}
-                            className="p-2 hover:bg-dark-800 hover:text-dark-100 text-dark-400 rounded-lg transition-colors"
-                            title="Rename"
-                          >
-                            <Edit3 className="h-4 w-4" />
-                          </button>
-
-                          {/* Delete Document */}
-                          <button
-                            onClick={() => handleDelete(doc.id)}
-                            className="p-2 hover:bg-red-500/10 hover:text-red-400 text-dark-400 rounded-lg transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            {/* Delete Document */}
+                            <button
+                              onClick={() => handleDelete(docId)}
+                              className="p-2 hover:bg-red-500/10 hover:text-red-400 text-dark-400 rounded-lg transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

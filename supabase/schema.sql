@@ -11,8 +11,12 @@ create extension if not exists "uuid-ossp";
 -- 1. Documents Table
 create table if not exists public.documents (
     id uuid primary key default gen_random_uuid(),
+    document_id uuid default gen_random_uuid(),
     user_id uuid not null references auth.users(id) on delete cascade,
     name text not null,
+    filename text,
+    original_filename text,
+    upload_time timestamptz default now(),
     size bigint not null,
     status text not null check (status in ('uploaded', 'processing', 'processed', 'failed')),
     storage_path text not null,

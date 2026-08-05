@@ -1,8 +1,10 @@
 import os
 import time
+import uuid
 import shutil
 import traceback
 import gc
+from datetime import datetime
 from typing import List, Any
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks, status
 from pydantic import BaseModel
@@ -32,11 +34,10 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
     """
     Background worker function that extracts text page-by-page, generates embeddings
     in batches of BATCH_SIZE (20), and indexes them incrementally into the vector store.
-    Memory usage is strictly bounded and garbage collection is triggered after each batch.
     """
     supabase = get_supabase_client()
     initial_ram = get_memory_usage_mb()
-    logger.info(f"[INDEXING START] Starting background indexing task for document_id={document_id}, user_id={user_id} | Initial RAM: {initial_ram:.2f} MB")
+    logger.info(f"Chroma processing started for document_id={document_id}, user_id={user_id} | Initial RAM: {initial_ram:.2f} MB")
     
     try:
         # Step 1: Update status in DB to processing
@@ -150,12 +151,11 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
         safe_supabase_query(update_processed, fallback_processed, timeout_seconds=3.0)
         
         final_ram = get_memory_usage_mb()
-        logger.info(f"[SUCCESS] Finished background indexing for document_id={document_id} | Total Chunks: {total_chunks} | Final RAM: {final_ram:.2f} MB")
+        logger.info(f"Upload completed for document_id={document_id} | Total Chunks: {total_chunks} | Final RAM: {final_ram:.2f} MB")
         
     except Exception as e:
         error_tb = traceback.format_exc()
         logger.error(f"[FAILURE] Failed to process document {document_id}: {e}\n{error_tb}")
-        # Always set status to processed so user can view/manage the uploaded document
         try:
             def update_processed_fallback():
                 supabase.table("documents").update({
@@ -183,10 +183,9 @@ def upload_document(
     """
     Upload a PDF document using streaming file writing directly to disk to prevent RAM spikes.
     Saves it locally, uploads to Supabase storage, registers metadata in DB, and queues vector indexing.
-    Runs synchronously in a worker thread to prevent event loop blocking.
     """
     ram_start = get_memory_usage_mb()
-    logger.info(f"[UPLOAD RECEIVED] File='{file.filename}', user_id='{current_user.id}' | Initial RAM: {ram_start:.2f} MB")
+    logger.info(f"Upload started: filename='{file.filename}', user_id='{current_user.id}' | Initial RAM: {ram_start:.2f} MB")
     
     # Validation: Allowed document extensions
     allowed_exts = {".pdf", ".txt", ".md", ".csv", ".json", ".doc", ".docx", ".log"}
@@ -214,8 +213,8 @@ def upload_document(
     except Exception as dup_err:
         logger.warning(f"[UPLOAD DUP CHECK WARNING] {dup_err}")
 
-    # Make local upload directory path (with safe /tmp fallback for serverless environments)
-    upload_base = "/tmp/uploads" if (os.getenv("VERCEL") or "tmp" in settings.UPLOAD_FOLDER.lower()) else settings.UPLOAD_FOLDER
+    # Task 3 & 4: Make local upload directory path and verify existence & file permissions
+    upload_base = settings.UPLOAD_FOLDER if settings.UPLOAD_FOLDER else "./uploads"
     user_upload_dir = os.path.join(upload_base, str(current_user.id))
     try:
         os.makedirs(user_upload_dir, exist_ok=True)
@@ -224,9 +223,17 @@ def upload_document(
         user_upload_dir = os.path.join("/tmp/uploads", str(current_user.id))
         os.makedirs(user_upload_dir, exist_ok=True)
 
+    # Verify directory permissions
+    if not os.access(user_upload_dir, os.W_OK):
+        logger.error(f"[PERMISSION ERROR] Directory {user_upload_dir} is not writable.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Upload directory permissions error: {user_upload_dir} is not writable."
+        )
+
     local_file_path = os.path.join(user_upload_dir, filename)
     
-    # Stream file directly to disk in 1MB chunks (Memory Optimization: Avoid loading full file bytes into RAM)
+    # Task 2: Stream file directly to disk in 1MB chunks to ensure uploaded PDFs are physically saved
     file_size = 0
     buffer_chunk_size = 1024 * 1024  # 1 MB buffer
     try:
@@ -244,7 +251,7 @@ def upload_document(
                     )
                 buffer.write(chunk)
         ram_after_save = get_memory_usage_mb()
-        logger.info(f"[FILE STREAM SAVED] Saved upload ({file_size} bytes) to {local_file_path} | RAM: {ram_after_save:.2f} MB")
+        logger.info(f"File saved to {local_file_path} ({file_size} bytes) | RAM: {ram_after_save:.2f} MB")
     except HTTPException:
         raise
     except Exception as e:
@@ -257,7 +264,7 @@ def upload_document(
             detail=f"Could not save file on backend server storage: {str(e)}"
         )
 
-    # Upload to Supabase Storage
+    # Upload to Supabase Storage (if configured)
     storage_path = f"{current_user.id}/{filename}"
     try:
         def storage_upload():
@@ -268,26 +275,32 @@ def upload_document(
         logger.info(f"[SUPABASE UPLOAD] Uploaded to bucket 'pdfs' at path: {storage_path}")
     except Exception as e:
         logger.warning(f"[SUPABASE UPLOAD WARNING] Failed to upload to Supabase storage: {e}")
-        
-    # Insert metadata into Database (with fallback)
+
+    # Task 5: Save document metadata into Supabase with all specified fields
+    doc_id = str(uuid.uuid4())
+    upload_time_str = datetime.utcnow().isoformat() + "Z"
+
+    metadata_payload = {
+        "id": doc_id,
+        "document_id": doc_id,
+        "filename": filename,
+        "original_filename": file.filename,
+        "upload_time": upload_time_str,
+        "user_id": current_user.id,
+        "size": file_size,
+        "status": "processing",
+        "name": filename,
+        "storage_path": storage_path,
+        "created_at": upload_time_str,
+        "updated_at": upload_time_str
+    }
+
     def primary_db_insert():
-        return supabase.table("documents").insert({
-            "user_id": current_user.id,
-            "name": filename,
-            "size": file_size,
-            "status": "processed",
-            "storage_path": storage_path
-        }).execute()
+        return supabase.table("documents").insert(metadata_payload).execute()
 
     def fallback_db_insert():
         from app.database.supabase_client import mock_client
-        return mock_client.table("documents").insert({
-            "user_id": current_user.id,
-            "name": filename,
-            "size": file_size,
-            "status": "processed",
-            "storage_path": storage_path
-        }).execute()
+        return mock_client.table("documents").insert(metadata_payload).execute()
 
     doc_record = None
     try:
@@ -310,19 +323,11 @@ def upload_document(
             logger.warning(f"[UPLOAD FALLBACK DB WARNING] {fb_err}")
 
     if not doc_record or not isinstance(doc_record, dict) or "id" not in doc_record:
-        doc_record = {
-            "id": str(uuid.uuid4()),
-            "user_id": current_user.id,
-            "name": filename,
-            "size": file_size,
-            "status": "processed",
-            "storage_path": storage_path,
-            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ")
-        }
+        doc_record = metadata_payload
 
-    logger.info(f"[DATABASE INSERT SUCCESS] Document record created with ID: {doc_record['id']} | RAM: {get_memory_usage_mb():.2f} MB")
+    logger.info(f"Metadata inserted: document_id={doc_record.get('document_id', doc_id)}, filename={filename}")
     
-    # Queue automatic background indexing
+    # Task 8 & 10: Queue automatic background indexing
     background_tasks.add_task(
         async_process_document,
         document_id=doc_record["id"],
@@ -332,13 +337,13 @@ def upload_document(
     )
     
     ram_before_resp = get_memory_usage_mb()
-    logger.info(f"[UPLOAD RESPONSE READY] Returning doc_record | RAM: {ram_before_resp:.2f} MB")
+    logger.info(f"[UPLOAD RESPONSE READY] Returning document metadata | RAM: {ram_before_resp:.2f} MB")
     return doc_record
 
 @router.get("", response_model=List[dict])
 def list_documents(current_user: Any = Depends(get_current_user)):
     """
-    Get all document metadata records for the current user.
+    Task 6: Get all document metadata records for the logged-in user.
     """
     supabase = get_supabase_client()
     
@@ -354,11 +359,23 @@ def list_documents(current_user: Any = Depends(get_current_user)):
     try:
         data = safe_supabase_query(primary_query, fallback_query, timeout_seconds=4.0)
         docs = data if data is not None else []
+        formatted_docs = []
         for d in docs:
-            # Ensure status is always 'processed' for user document inventory display
-            if d.get("status") in ["failed", "processing", "uploaded"]:
-                d["status"] = "processed"
-        return docs
+            doc_dict = dict(d)
+            d_id = doc_dict.get("document_id") or doc_dict.get("id")
+            d_name = doc_dict.get("filename") or doc_dict.get("name")
+            d_orig = doc_dict.get("original_filename") or d_name
+            d_time = doc_dict.get("upload_time") or doc_dict.get("created_at")
+
+            doc_dict["id"] = d_id
+            doc_dict["document_id"] = d_id
+            doc_dict["name"] = d_name
+            doc_dict["filename"] = d_name
+            doc_dict["original_filename"] = d_orig
+            doc_dict["upload_time"] = d_time
+            doc_dict["created_at"] = d_time
+            formatted_docs.append(doc_dict)
+        return formatted_docs
     except Exception as e:
         logger.error(f"[DOCUMENTS LIST ERROR] Failed to list documents: {e}")
         return []
