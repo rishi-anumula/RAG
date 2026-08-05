@@ -105,7 +105,8 @@ from fastapi import FastAPI, Request, HTTPException, status, APIRouter
 # CORS Configuration
 origins = [
     "http://localhost:5173",
-    "https://your-project.vercel.app",
+    "https://rag-frontend-ochre.vercel.app",
+    "https://rag-frontend-ochre.vercel.app/",
 ]
 if hasattr(settings, "FRONTEND_URL") and settings.FRONTEND_URL:
     origins.append(settings.FRONTEND_URL)
