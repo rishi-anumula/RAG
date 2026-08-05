@@ -1,8 +1,10 @@
-from fastapi import APIRouter, HTTPException, status
+from typing import Any
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, EmailStr
-from app.database.supabase_client import get_supabase_client
+from app.database.supabase_client import get_supabase_client, MockSupabaseClient
 from app.core.logging_config import get_logger
 from app.core.errors import handle_exception, is_connection_error
+from app.core.security import get_current_user
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -15,99 +17,163 @@ class AuthRequest(BaseModel):
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 def signup(payload: AuthRequest):
     """
-    Registers a new user in Supabase Auth.
+    Registers a new user in Supabase Auth using supabase.auth.sign_up.
+    Returns HTTP 201 on success. Returns exact Supabase error messages if registration fails.
     """
     logger.info(f"Received signup request for: {payload.email}")
     supabase = get_supabase_client(use_service_role=False)
+    
     try:
         response = supabase.auth.sign_up({
             "email": payload.email,
             "password": payload.password
         })
         
-        # Checking if registration generated user
-        if not response.user:
+        # Log full Supabase response for diagnostic transparency
+        logger.info(
+            f"Full Supabase signup response for {payload.email}: "
+            f"user={getattr(response, 'user', None)}, "
+            f"session={getattr(response, 'session', None)}"
+        )
+
+        user_obj = getattr(response, "user", None)
+        if not response or not user_obj:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Signup failed. Please try again."
+                detail="User registration failed. Unable to create account."
             )
-            
-        logger.info(f"Signup successful for user: {response.user.id}")
-        
-        # Format response
+
+        session_obj = getattr(response, "session", None)
         session_data = None
-        if response.session:
+        if session_obj:
             session_data = {
-                "access_token": response.session.access_token,
-                "refresh_token": response.session.refresh_token,
-                "expires_in": response.session.expires_in,
-                "expires_at": response.session.expires_at
+                "access_token": getattr(session_obj, "access_token", None),
+                "refresh_token": getattr(session_obj, "refresh_token", None),
+                "expires_in": getattr(session_obj, "expires_in", None),
+                "expires_at": getattr(session_obj, "expires_at", None)
             }
-            
+
+        # Check if email confirmation is required by Supabase project settings
+        if not session_data:
+            message = "Account created successfully. Please verify your email."
+        else:
+            message = "Account created successfully."
+
+        logger.info(f"Signup successful for user ID: {getattr(user_obj, 'id', 'unknown')}")
+
         return {
-            "message": "User registered successfully. Please check your email for verification if enabled.",
+            "message": message,
             "user": {
-                "id": response.user.id,
-                "email": response.user.email
+                "id": getattr(user_obj, "id", None),
+                "email": getattr(user_obj, "email", payload.email)
             },
             "session": session_data
         }
+
+    except HTTPException:
+        raise
     except Exception as e:
-        handle_exception(e)
+        if is_connection_error(e):
+            handle_exception(e)
+
+        # Extract exact Supabase error message
+        err_msg = str(e)
+        if hasattr(e, "message") and getattr(e, "message"):
+            err_msg = str(getattr(e, "message"))
+        elif hasattr(e, "detail") and getattr(e, "detail"):
+            err_msg = str(getattr(e, "detail"))
+
+        logger.error(f"Supabase signup failed for {payload.email}: {err_msg}", exc_info=True)
+
+        status_code = status.HTTP_400_BAD_REQUEST
+        if hasattr(e, "code") and isinstance(getattr(e, "code"), int):
+            status_code = getattr(e, "code")
+        elif hasattr(e, "status") and isinstance(getattr(e, "status"), int):
+            status_code = getattr(e, "status")
+
+        raise HTTPException(
+            status_code=status_code,
+            detail=err_msg
+        )
 
 @router.post("/login")
 def login(payload: AuthRequest):
     """
-    Authenticates a user using Supabase Auth.
+    Authenticates a user using Supabase Auth with sign_in_with_password.
+    Returns exact Supabase authentication errors on failure.
     """
     logger.info(f"Received login request for: {payload.email}")
     supabase = get_supabase_client(use_service_role=False)
+    
     try:
         response = supabase.auth.sign_in_with_password({
             "email": payload.email,
             "password": payload.password
         })
         
-        if not response.session:
+        # Log full Supabase response
+        logger.info(
+            f"Full Supabase login response for {payload.email}: "
+            f"user={getattr(response, 'user', None)}, "
+            f"session={getattr(response, 'session', None)}"
+        )
+
+        user_obj = getattr(response, "user", None)
+        session_obj = getattr(response, "session", None)
+
+        if not response or not session_obj or not user_obj:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication failed. No session returned."
+                detail="Authentication failed. Invalid email or password."
             )
-            
-        logger.info(f"User logged in successfully: {response.user.id}")
-        
+
+        logger.info(f"User logged in successfully: {user_obj.id}")
+
         return {
             "user": {
-                "id": response.user.id,
-                "email": response.user.email
+                "id": user_obj.id,
+                "email": user_obj.email
             },
             "session": {
-                "access_token": response.session.access_token,
-                "refresh_token": response.session.refresh_token,
-                "expires_in": response.session.expires_in,
-                "expires_at": response.session.expires_at
+                "access_token": session_obj.access_token,
+                "refresh_token": session_obj.refresh_token,
+                "expires_in": session_obj.expires_in,
+                "expires_at": session_obj.expires_at
             }
         }
+
+    except HTTPException:
+        raise
     except Exception as e:
         if is_connection_error(e):
             handle_exception(e)
-        logger.error(f"Login error: {e}", exc_info=True)
+
+        # Extract exact Supabase error message
+        err_msg = str(e)
+        if hasattr(e, "message") and getattr(e, "message"):
+            err_msg = str(getattr(e, "message"))
+        elif hasattr(e, "detail") and getattr(e, "detail"):
+            err_msg = str(getattr(e, "detail"))
+
+        logger.error(f"Supabase login failed for {payload.email}: {err_msg}", exc_info=True)
+
+        status_code = status.HTTP_401_UNAUTHORIZED
+        if hasattr(e, "code") and isinstance(getattr(e, "code"), int):
+            status_code = getattr(e, "code")
+        elif hasattr(e, "status") and isinstance(getattr(e, "status"), int):
+            status_code = getattr(e, "status")
+
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password."
+            status_code=status_code,
+            detail=err_msg
         )
-
-from typing import Any
-from fastapi import Depends
-from app.core.security import get_current_user
-from app.database.supabase_client import MockSupabaseClient
-
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
 
 @router.post("/change-password")
 def change_password(
@@ -164,9 +230,8 @@ def forgot_password(payload: ForgotPasswordRequest):
     logger.info(f"Received forgot password request for: {payload.email}")
     supabase = get_supabase_client(use_service_role=False)
     try:
-        response = supabase.auth.reset_password_for_email(payload.email)
+        supabase.auth.reset_password_for_email(payload.email)
         logger.info(f"Password reset email sent to: {payload.email}")
         return {"message": "Password reset link sent successfully."}
     except Exception as e:
         handle_exception(e)
-
