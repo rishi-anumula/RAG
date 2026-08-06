@@ -44,7 +44,7 @@ def test_gemini_prompt_synthesis():
         called_prompt = mock_model.generate_content.call_args[0][0]
         
         # Verify strict prompt guidelines are attached
-        assert "Answer ONLY using the provided context" in called_prompt
+        assert "Use Document Context First" in called_prompt
         assert "fastapi_manual.pdf" in called_prompt
         assert "PAGE: 12" in called_prompt
         assert "What is FastAPI?" in called_prompt
