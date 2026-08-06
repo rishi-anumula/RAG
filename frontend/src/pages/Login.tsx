@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { authService } from '../services/authService';
+import { supabase } from '../services/supabaseClient';
 import { 
   BookOpen, 
   Mail, 
@@ -83,13 +84,19 @@ export const Login: React.FC = () => {
     }
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleLogin = async () => {
     setError(null);
     setGoogleLoading(true);
     try {
-      await authService.googleLogin();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/`,
+        },
+      });
+      if (error) throw error;
     } catch (err: any) {
-      console.error('Google Sign-In failed:', err);
+      console.error('Google Sign-In Error:', err?.message || err);
       setError(err?.message || 'Failed to initialize Google Sign-In. Please check Supabase OAuth settings.');
       setGoogleLoading(false);
     }
@@ -199,7 +206,7 @@ export const Login: React.FC = () => {
           {/* Google OAuth Authentication Button */}
           <button
             type="button"
-            onClick={handleGoogleSignIn}
+            onClick={handleGoogleLogin}
             disabled={googleLoading}
             className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-slate-950/90 hover:bg-slate-800/90 border border-slate-800 hover:border-slate-700 rounded-2xl text-sm font-semibold text-slate-200 hover:text-white transition-all duration-200 shadow-md group disabled:opacity-50"
           >
