@@ -1,4 +1,5 @@
 import api from './api';
+import { signInWithGoogle } from './supabaseClient';
 import type { LoginCredentials, SignupCredentials, ChangePasswordCredentials, AuthResponse, BaseResponse } from '../types';
 
 export const authService = {
@@ -14,6 +15,10 @@ export const authService = {
       localStorage.setItem('rag_user', JSON.stringify(response.data.user));
     }
     return response.data;
+  },
+
+  async googleLogin(): Promise<void> {
+    await signInWithGoogle();
   },
 
   logout(): void {
@@ -47,3 +52,5 @@ export const authService = {
     return !!localStorage.getItem('rag_token');
   }
 };
+
+export default authService;
