@@ -276,69 +276,77 @@ def upload_document(
     except Exception as e:
         logger.warning(f"[SUPABASE UPLOAD WARNING] Failed to upload to Supabase storage: {e}")
 
-    # Task 5: Save document metadata into Supabase with all specified fields
+    # Save document metadata into Supabase with valid schema fields
     doc_id = str(uuid.uuid4())
     upload_time_str = datetime.utcnow().isoformat() + "Z"
 
+    # Only include schema columns defined in Supabase documents table
     metadata_payload = {
         "id": doc_id,
-        "document_id": doc_id,
-        "filename": filename,
-        "original_filename": file.filename,
-        "upload_time": upload_time_str,
         "user_id": current_user.id,
+        "name": filename,
         "size": file_size,
         "status": "processing",
-        "name": filename,
         "storage_path": storage_path,
         "created_at": upload_time_str,
         "updated_at": upload_time_str
     }
 
-    def primary_db_insert():
-        return supabase.table("documents").insert(metadata_payload).execute()
-
-    def fallback_db_insert():
-        from app.database.supabase_client import mock_client
-        return mock_client.table("documents").insert(metadata_payload).execute()
+    logger.info(f"[SUPABASE INSERT STARTED] Inserting document metadata into Supabase: doc_id={doc_id}, name='{filename}', user_id='{current_user.id}'")
 
     doc_record = None
     try:
-        db_insert = safe_supabase_query(primary_db_insert, fallback_db_insert, timeout_seconds=4.0)
+        db_insert = supabase.table("documents").insert(metadata_payload).execute()
+        logger.info(f"[SUPABASE INSERT RESPONSE] {db_insert}")
+
         if hasattr(db_insert, "data") and db_insert.data and len(db_insert.data) > 0:
             doc_record = db_insert.data[0]
-        elif isinstance(db_insert, dict):
-            doc_record = db_insert
+            logger.info(f"[SUPABASE INSERT SUCCEEDED] Document row inserted into Supabase. Inserted ID: {doc_record.get('id')}")
         elif isinstance(db_insert, list) and len(db_insert) > 0:
             doc_record = db_insert[0]
+            logger.info(f"[SUPABASE INSERT SUCCEEDED] Document row inserted into Supabase. Inserted ID: {doc_record.get('id')}")
+        else:
+            logger.error(f"[SUPABASE INSERT FAILED] Supabase returned empty data on insert: {db_insert}")
+            if os.path.exists(local_file_path):
+                os.remove(local_file_path)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database insert failed: Supabase returned empty response."
+            )
+    except HTTPException:
+        raise
     except Exception as db_err:
-        logger.warning(f"[UPLOAD DB WARNING] Primary database insert error: {db_err}")
+        error_msg = str(db_err)
+        logger.error(f"[SUPABASE INSERT FAILED] Supabase insert failed: {error_msg}\n{traceback.format_exc()}")
+        if os.path.exists(local_file_path):
+            os.remove(local_file_path)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database insert failed: {error_msg}"
+        )
 
-    if not doc_record or not isinstance(doc_record, dict) or "id" not in doc_record:
-        try:
-            fb_res = fallback_db_insert()
-            if hasattr(fb_res, "data") and fb_res.data and len(fb_res.data) > 0:
-                doc_record = fb_res.data[0]
-        except Exception as fb_err:
-            logger.warning(f"[UPLOAD FALLBACK DB WARNING] {fb_err}")
+    returned_doc_id = doc_record.get("id", doc_id)
+    logger.info(f"[RETURNED DOCUMENT ID] document_id={returned_doc_id}")
 
-    if not doc_record or not isinstance(doc_record, dict) or "id" not in doc_record:
-        doc_record = metadata_payload
+    # Build full record with frontend helper properties
+    response_record = dict(doc_record)
+    response_record["document_id"] = returned_doc_id
+    response_record["filename"] = filename
+    response_record["original_filename"] = file.filename
+    response_record["upload_time"] = upload_time_str
 
-    logger.info(f"Metadata inserted: document_id={doc_record.get('document_id', doc_id)}, filename={filename}")
-    
-    # Task 8 & 10: Queue automatic background indexing
+    # Queue background indexing with returned document ID
     background_tasks.add_task(
         async_process_document,
-        document_id=doc_record["id"],
+        document_id=returned_doc_id,
         file_path=local_file_path,
         filename=filename,
         user_id=current_user.id
     )
-    
+
     ram_before_resp = get_memory_usage_mb()
-    logger.info(f"[UPLOAD RESPONSE READY] Returning document metadata | RAM: {ram_before_resp:.2f} MB")
-    return doc_record
+    logger.info(f"[UPLOAD RESPONSE READY] Returning document metadata for document_id={returned_doc_id} | RAM: {ram_before_resp:.2f} MB")
+    return response_record
 
 @router.get("", response_model=List[dict])
 def list_documents(current_user: Any = Depends(get_current_user)):
