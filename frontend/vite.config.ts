@@ -8,12 +8,12 @@ export default defineConfig({
     host: true,
     port: 5173,
     proxy: {
-      '/auth': 'https://rag-backend-6ozj.onrender.com',
-      '/documents': 'https://rag-backend-6ozj.onrender.com',
-      '/chat': 'https://rag-backend-6ozj.onrender.com',
-      '/dashboard': 'https://rag-backend-6ozj.onrender.com',
-      '/health': 'https://rag-backend-6ozj.onrender.com',
-      '/api': 'https://rag-backend-6ozj.onrender.com',
+      '/auth': 'http://localhost:8000',
+      '/documents': 'http://localhost:8000',
+      '/chat': 'http://localhost:8000',
+      '/dashboard': 'http://localhost:8000',
+      '/health': 'http://localhost:8000',
+      '/api': 'http://localhost:8000',
     }
   },
   build: {

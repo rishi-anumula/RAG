@@ -67,7 +67,10 @@ export const Login: React.FC = () => {
       }
       navigate('/dashboard');
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || 'Authentication failed. Please check your credentials.';
+      let msg = err?.response?.data?.detail || err?.message || 'Authentication failed. Please check your credentials.';
+      if (!err?.response && (err?.code === 'ERR_NETWORK' || err?.message === 'Network Error')) {
+        msg = 'Network Error: Unable to connect to backend server. Please ensure the backend FastAPI service is running at http://localhost:8000.';
+      }
       setError(msg);
     } finally {
       setLoading(false);
