@@ -60,14 +60,12 @@ export const Login: React.FC = () => {
     try {
       if (isSignUp) {
         await signup({ email, password });
-        setSuccessMsg('Account created successfully! Redirecting...');
+        setSuccessMsg('Account created successfully!');
       } else {
         await login({ email, password });
         setSuccessMsg('Signed in successfully!');
       }
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 600);
+      navigate('/dashboard');
     } catch (err: any) {
       const msg = err?.response?.data?.detail || err?.message || 'Authentication failed. Please check your credentials.';
       setError(msg);

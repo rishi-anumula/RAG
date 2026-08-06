@@ -4,6 +4,9 @@
 -- Enable UUID extension
 create extension if not exists "uuid-ossp";
 
+-- Ensure index exists on auth.users email for fast lookup
+create index if not exists idx_users_email on auth.users (email);
+
 ---------------------------------------------------------
 -- TABLES
 ---------------------------------------------------------

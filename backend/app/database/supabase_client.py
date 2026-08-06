@@ -22,6 +22,7 @@ def init_local_db(db_path):
         created_at TEXT
     )
     """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)")
     
     # Create documents table
     cursor.execute("""
@@ -436,16 +437,21 @@ class MockSupabaseClient:
     def table(self, table_name):
         return MockTableBuilder(self.db_path, table_name)
 
-# Instantiation
+# Instantiation & Singleton Caching
 mock_client = MockSupabaseClient()
 supabase_anon = mock_client
 supabase_service = mock_client
 
+_service_client_instance = None
+_anon_client_instance = None
+
 def get_supabase_client(use_service_role: bool = True) -> Client:
     """
-    Returns the appropriate Supabase client. If Supabase credentials are not provided,
+    Returns the appropriate cached Supabase client instance. If Supabase credentials are not provided,
     falls back to the SQLite Mock client to allow offline testing and execution.
     """
+    global _service_client_instance, _anon_client_instance
+
     url_valid = bool(
         settings.SUPABASE_URL 
         and (settings.SUPABASE_URL.startswith("http://") or settings.SUPABASE_URL.startswith("https://"))
@@ -454,12 +460,16 @@ def get_supabase_client(use_service_role: bool = True) -> Client:
     
     if not (url_valid and has_keys):
         return mock_client
-        
-    url = settings.SUPABASE_URL
-    key = settings.SUPABASE_SERVICE_ROLE_KEY if (use_service_role and settings.SUPABASE_SERVICE_ROLE_KEY) else (settings.SUPABASE_ANON_KEY or settings.SUPABASE_SERVICE_ROLE_KEY)
-        
-    # Return real Supabase Cloud client with service_role / anon key
-    return create_client(url, key)
+
+    if use_service_role and settings.SUPABASE_SERVICE_ROLE_KEY:
+        if _service_client_instance is None:
+            _service_client_instance = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+        return _service_client_instance
+    else:
+        key = settings.SUPABASE_ANON_KEY or settings.SUPABASE_SERVICE_ROLE_KEY
+        if _anon_client_instance is None:
+            _anon_client_instance = create_client(settings.SUPABASE_URL, key)
+        return _anon_client_instance
 
 import concurrent.futures
 
