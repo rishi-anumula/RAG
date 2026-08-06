@@ -154,7 +154,7 @@ def send_chat_message(
             user_id=current_user.id,
             query_embedding=query_vector,
             document_ids=payload.document_ids,
-            top_k=5
+            top_k=4
         )
     except Exception as e:
         logger.error(f"Error retrieving context from vector store: {e}", exc_info=True)

@@ -91,33 +91,18 @@ class GeminiService:
         delay = 1.0
         last_exception = None
         
-        # Determine valid model names dynamically, filtering out deprecated models
-        available_models = []
-        deprecated_models = {"gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-2.5-flash", "models/gemini-1.5-flash", "models/gemini-2.5-flash"}
-        
-        try:
-            for m in genai.list_models():
-                if "generateContent" in getattr(m, "supported_generation_methods", []):
-                    name = m.name.replace("models/", "")
-                    if name not in deprecated_models and m.name not in deprecated_models:
-                        available_models.append(name)
-                        available_models.append(m.name)
-        except Exception as list_err:
-            logger.warning(f"Could not list Gemini models dynamically: {list_err}")
-
-        default_fallbacks = [
+        # Primary model chain (ordered by reliability & latency)
+        fallback_models = [
+            "gemini-flash-latest",
             "gemini-2.0-flash",
             "gemini-2.0-flash-lite",
-            "gemini-flash-latest",
-            "gemini-pro-latest",
-            self.model_name
+            "gemini-pro-latest"
         ]
-
-        models_to_try = [m for m in (default_fallbacks + available_models) if m not in deprecated_models]
+        # De-duplicate while preserving priority order
         seen = set()
-        fallback_models = [m for m in models_to_try if m and not (m in seen or seen.add(m))]
+        models_to_try = [m for m in fallback_models if m and not (m in seen or seen.add(m))]
 
-        for m_name in fallback_models:
+        for m_name in models_to_try:
             try:
                 start_time = time.time()
                 logger.info(f"Sending prompt to Gemini model '{m_name}'. Query: {query[:50]}...")

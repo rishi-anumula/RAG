@@ -21,6 +21,8 @@ export const chatService = {
       message,
       conversation_id: conversationId,
       document_ids: documentIds && documentIds.length > 0 ? documentIds : null,
+    }, {
+      timeout: 60000
     });
     return response.data;
   },
