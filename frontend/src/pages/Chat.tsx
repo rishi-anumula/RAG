@@ -14,9 +14,12 @@ import {
   ThumbsDown, 
   BookOpen, 
   ChevronRight,
+  ChevronDown,
+  MessageSquare,
   Sparkles,
   Info,
-  Check
+  Check,
+  X
 } from 'lucide-react';
 
 export const Chat: React.FC = () => {
@@ -25,6 +28,9 @@ export const Chat: React.FC = () => {
   // Conversations list & status
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  
+  // Mobile drawer state for threads list
+  const [mobileThreadsOpen, setMobileThreadsOpen] = useState(false);
   
   // Active messages list & state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -64,7 +70,7 @@ export const Chat: React.FC = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, chatLoading]);
+  }, [messages, chatLoading, loading]);
 
   // Load conversations & documents list
   useEffect(() => {
@@ -98,6 +104,7 @@ export const Chat: React.FC = () => {
   const handleSelectConversation = async (convId: string) => {
     setActiveConvId(convId);
     setSearchParams({ conv_id: convId });
+    setMobileThreadsOpen(false);
     setChatLoading(true);
     try {
       const history = await chatService.getHistory(convId);
@@ -114,6 +121,7 @@ export const Chat: React.FC = () => {
     setMessages([]);
     searchParams.delete('conv_id');
     setSearchParams(searchParams);
+    setMobileThreadsOpen(false);
   };
 
   const handleSendMessage = async (text: string) => {
@@ -208,7 +216,6 @@ export const Chat: React.FC = () => {
   };
 
   const handleFeedback = async (msgId: string, feedback: 'liked' | 'disliked') => {
-    // Determine target feedback (toggle off if clicking same feedback)
     const targetMsg = messages.find(m => m.id === msgId);
     const newFeedback = targetMsg?.feedback === feedback ? null : feedback;
     
@@ -243,42 +250,102 @@ export const Chat: React.FC = () => {
 
   // Simple Markdown parser implementation for code block / bullets / bold
   const renderMessageContent = (content: string) => {
-    // Match code blocks ```code```
     const parts = content.split(/(```[\s\S]*?```)/g);
     return parts.map((part, idx) => {
       if (part.startsWith('```')) {
         const lines = part.split('\n');
         const code = lines.slice(1, lines.length - 1).join('\n');
         return (
-          <pre key={idx} className="bg-dark-900 border border-dark-800 rounded-xl p-4 my-3 overflow-x-auto text-xs font-mono text-brand-300">
+          <pre key={idx} className="bg-dark-900 border border-dark-800 rounded-xl p-3 sm:p-4 my-2.5 overflow-x-auto text-xs font-mono text-brand-300 max-w-full">
             <code>{code}</code>
           </pre>
         );
       }
       
-      // Handle inline code formatting `code` and bold **bold**
       const formattedLines = part.split('\n').map((line, lIdx) => {
-        // Bullet list rendering
         if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
           return (
-            <ul key={lIdx} className="list-disc pl-6 my-1">
+            <ul key={lIdx} className="list-disc pl-5 sm:pl-6 my-1">
               <li>{line.trim().substring(2)}</li>
             </ul>
           );
         }
-        return <p key={lIdx} className="mb-2 leading-relaxed">{line}</p>;
+        return <p key={lIdx} className="mb-2 leading-relaxed break-words">{line}</p>;
       });
       return <div key={idx}>{formattedLines}</div>;
     });
   };
 
+  // Content helper for threads list items
+  const renderThreadsList = () => (
+    <div className="flex-1 overflow-y-auto p-3 space-y-1.5 min-h-0">
+      {loading ? (
+        <div className="text-center py-6 text-xs text-dark-500">Loading threads...</div>
+      ) : conversations.length === 0 ? (
+        <div className="text-center py-6 text-xs text-dark-500">No conversations.</div>
+      ) : (
+        conversations.map((conv) => {
+          const isActive = activeConvId === conv.id;
+          const isEditing = editingConvId === conv.id;
+          return (
+            <div
+              key={conv.id}
+              onClick={() => !isEditing && handleSelectConversation(conv.id)}
+              className={`
+                w-full flex items-center justify-between px-3.5 py-3 rounded-xl cursor-pointer text-xs font-medium transition-all group border
+                ${isActive 
+                  ? 'bg-brand-600/10 border-brand-500/20 text-brand-400 font-semibold' 
+                  : 'border-transparent text-dark-400 hover:bg-dark-800/40 hover:text-dark-200'
+                }
+              `}
+            >
+              <div className="flex items-center space-x-2.5 min-w-0 flex-1 pr-2">
+                <BookOpen className="h-4 w-4 shrink-0" />
+                
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editingConvValue}
+                    onChange={(e) => setEditingConvValue(e.target.value)}
+                    onBlur={handleRenameSubmit}
+                    onKeyDown={(e) => e.key === 'Enter' && handleRenameSubmit()}
+                    className="w-full bg-dark-900 border border-brand-500/50 rounded px-1.5 py-0.5 text-white text-[11px] focus:outline-none"
+                    onClick={(e) => e.stopPropagation()}
+                    autoFocus
+                  />
+                ) : (
+                  <span className="truncate">{conv.title}</span>
+                )}
+              </div>
+              
+              {!isEditing && (
+                <div className="flex items-center space-x-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                  <button 
+                    onClick={(e) => startRenameConversation(conv, e)}
+                    className="p-1 hover:bg-dark-800 text-dark-500 hover:text-brand-400 rounded transition-colors"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                  </button>
+                  <button 
+                    onClick={(e) => handleDeleteConversation(conv.id, e)}
+                    className="p-1 hover:bg-red-500/10 text-dark-500 hover:text-red-400 rounded transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+
   return (
-    <div className="h-[80vh] flex flex-col lg:flex-row relative glass rounded-2xl overflow-hidden shadow-2xl border border-dark-800/80">
+    <div className="h-full flex-1 flex flex-col lg:flex-row relative glass rounded-xl sm:rounded-2xl overflow-hidden shadow-2xl border border-dark-800/80 min-h-0">
       
-      {/* 1. Left Sidebar: Chat list threads */}
-      <aside className="w-full lg:w-64 border-b lg:border-b-0 lg:border-r border-dark-800 flex flex-col justify-between shrink-0 bg-dark-900/40">
-        
-        {/* Sidebar Header */}
+      {/* 1. Left Desktop Sidebar: Chat list threads */}
+      <aside className="hidden lg:flex w-64 border-r border-dark-800 flex-col justify-between shrink-0 bg-dark-900/40 min-h-0">
         <div className="p-4 border-b border-dark-800 flex items-center justify-between">
           <h3 className="text-sm font-bold text-white tracking-wide">Conversations</h3>
           <button 
@@ -286,74 +353,12 @@ export const Chat: React.FC = () => {
             className="p-1.5 bg-brand-600/10 hover:bg-brand-600/20 text-brand-400 rounded-lg border border-brand-500/15 transition-all text-xs font-semibold flex items-center space-x-1"
           >
             <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline lg:hidden">New Chat</span>
+            <span>New Chat</span>
           </button>
         </div>
 
-        {/* Chats History Threads */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-          {loading ? (
-            <div className="text-center py-6 text-xs text-dark-500">Loading threads...</div>
-          ) : conversations.length === 0 ? (
-            <div className="text-center py-6 text-xs text-dark-500">No conversations.</div>
-          ) : (
-            conversations.map((conv) => {
-              const isActive = activeConvId === conv.id;
-              const isEditing = editingConvId === conv.id;
-              return (
-                <div
-                  key={conv.id}
-                  onClick={() => !isEditing && handleSelectConversation(conv.id)}
-                  className={`
-                    w-full flex items-center justify-between px-3.5 py-3 rounded-xl cursor-pointer text-xs font-medium transition-all group border
-                    ${isActive 
-                      ? 'bg-brand-600/10 border-brand-500/20 text-brand-400' 
-                      : 'border-transparent text-dark-400 hover:bg-dark-800/40 hover:text-dark-200'
-                    }
-                  `}
-                >
-                  <div className="flex items-center space-x-2.5 min-w-0 flex-1 pr-2">
-                    <BookOpen className="h-4 w-4 shrink-0" />
-                    
-                    {isEditing ? (
-                      <input
-                        type="text"
-                        value={editingConvValue}
-                        onChange={(e) => setEditingConvValue(e.target.value)}
-                        onBlur={handleRenameSubmit}
-                        onKeyDown={(e) => e.key === 'Enter' && handleRenameSubmit()}
-                        className="w-full bg-dark-900 border border-brand-500/50 rounded px-1.5 py-0.5 text-white text-[11px] focus:outline-none"
-                        onClick={(e) => e.stopPropagation()}
-                        autoFocus
-                      />
-                    ) : (
-                      <span className="truncate">{conv.title}</span>
-                    )}
-                  </div>
-                  
-                  {!isEditing && (
-                    <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={(e) => startRenameConversation(conv, e)}
-                        className="p-1 hover:bg-dark-800 text-dark-500 hover:text-brand-400 rounded transition-colors"
-                      >
-                        <Edit3 className="h-3 w-3" />
-                      </button>
-                      <button 
-                        onClick={(e) => handleDeleteConversation(conv.id, e)}
-                        className="p-1 hover:bg-red-500/10 text-dark-500 hover:text-red-400 rounded transition-colors"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
+        {renderThreadsList()}
 
-        {/* Sidebar Footer: Filters trigger */}
         {documents.length > 0 && (
           <div className="p-3 border-t border-dark-800">
             <button
@@ -380,42 +385,121 @@ export const Chat: React.FC = () => {
         )}
       </aside>
 
-      {/* 2. Middle Content Area: Chat viewport */}
-      <section className="flex-1 flex flex-col justify-between min-w-0 bg-dark-950/20">
-        
-        {/* Chat Header */}
-        <header className="p-4 border-b border-dark-800 flex items-center justify-between bg-dark-900/20 backdrop-blur-md">
-          <div className="min-w-0">
-            <h2 className="text-sm font-bold text-white truncate">
-              {activeConvId 
-                ? conversations.find(c => c.id === activeConvId)?.title || 'Active Conversation'
-                : 'New Chat Session'
-              }
-            </h2>
-            {selectedDocIds.length > 0 && (
-              <p className="text-[10px] text-brand-400 mt-0.5 font-medium truncate">
-                Restricted to {selectedDocIds.length} document(s)
-              </p>
+      {/* Mobile Threads Modal Drawer (Slide-over overlay on mobile screens) */}
+      {mobileThreadsOpen && (
+        <div className="lg:hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col justify-end sm:justify-center p-0 sm:p-4">
+          <div className="w-full max-w-md bg-dark-900 border-t sm:border border-dark-800 rounded-t-2xl sm:rounded-2xl max-h-[80vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-dark-800 flex items-center justify-between bg-dark-950/50">
+              <div className="flex items-center space-x-2">
+                <MessageSquare className="h-5 w-5 text-brand-400" />
+                <h3 className="text-sm font-bold text-white">Chat Threads</h3>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button 
+                  onClick={handleNewChat}
+                  className="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold flex items-center space-x-1"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>New Chat</span>
+                </button>
+                <button 
+                  onClick={() => setMobileThreadsOpen(false)}
+                  className="p-1 text-dark-400 hover:text-white"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {renderThreadsList()}
+
+            {documents.length > 0 && (
+              <div className="p-3 border-t border-dark-800 bg-dark-950/30">
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={`
+                    w-full flex items-center justify-between p-2.5 rounded-xl border text-xs font-semibold transition-all
+                    ${showFilters 
+                      ? 'border-brand-500/30 bg-brand-500/5 text-brand-400' 
+                      : 'border-dark-800 text-dark-400 hover:border-dark-700 hover:bg-dark-900/40'
+                    }
+                  `}
+                >
+                  <span className="flex items-center space-x-2">
+                    <Sparkles className="h-4 w-4" />
+                    <span>Source Filtering ({selectedDocIds.length > 0 ? `${selectedDocIds.length} active` : 'All docs'})</span>
+                  </span>
+                </button>
+              </div>
             )}
           </div>
-          
-          {messages.length > 0 && (
+        </div>
+      )}
+
+      {/* 2. Middle Content Area: Chat Viewport */}
+      <section className="flex-1 flex flex-col justify-between min-w-0 bg-dark-950/20 min-h-0">
+        
+        {/* Chat Header */}
+        <header className="p-3.5 sm:p-4 border-b border-dark-800 flex items-center justify-between bg-dark-900/40 backdrop-blur-md shrink-0">
+          <div className="flex items-center space-x-2 min-w-0 flex-1 pr-2">
+            {/* Mobile thread menu toggle button */}
             <button
-              onClick={handleDownloadChat}
-              className="p-2 hover:bg-dark-800 text-dark-400 hover:text-dark-100 border border-dark-850 rounded-xl transition-colors font-semibold text-xs flex items-center space-x-1.5"
-              title="Download Conversation"
+              onClick={() => setMobileThreadsOpen(true)}
+              className="lg:hidden flex items-center space-x-1.5 px-2.5 py-1.5 bg-dark-850 hover:bg-dark-800 border border-dark-700 rounded-xl text-xs font-semibold text-white transition-all shrink-0"
+              title="Switch Chat Thread"
             >
-              <Download className="h-4 w-4" />
-              <span className="hidden sm:inline">Export</span>
+              <MessageSquare className="h-4 w-4 text-brand-400" />
+              <ChevronDown className="h-3.5 w-3.5 text-dark-400" />
             </button>
-          )}
+
+            <div className="min-w-0 flex-1">
+              <h2 className="text-xs sm:text-sm font-bold text-white truncate">
+                {activeConvId 
+                  ? conversations.find(c => c.id === activeConvId)?.title || 'Active Conversation'
+                  : 'New Chat Session'
+                }
+              </h2>
+              {selectedDocIds.length > 0 && (
+                <p className="text-[10px] text-brand-400 font-medium truncate">
+                  Filtered to {selectedDocIds.length} document(s)
+                </p>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center space-x-2 shrink-0">
+            {documents.length > 0 && (
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`lg:hidden p-2 rounded-xl border text-xs font-semibold transition-all ${
+                  showFilters 
+                    ? 'border-brand-500/30 bg-brand-500/10 text-brand-400' 
+                    : 'border-dark-800 text-dark-400 hover:text-white'
+                }`}
+                title="Filter Sources"
+              >
+                <Sparkles className="h-4 w-4" />
+              </button>
+            )}
+
+            {messages.length > 0 && (
+              <button
+                onClick={handleDownloadChat}
+                className="p-2 hover:bg-dark-800 text-dark-400 hover:text-dark-100 border border-dark-800 rounded-xl transition-colors font-semibold text-xs flex items-center space-x-1.5"
+                title="Download Conversation"
+              >
+                <Download className="h-4 w-4" />
+                <span className="hidden sm:inline">Export</span>
+              </button>
+            )}
+          </div>
         </header>
 
         {/* Source Filter checklist drawer (if active) */}
         {showFilters && documents.length > 0 && (
-          <div className="p-4 border-b border-dark-800 bg-dark-900/60 flex flex-col space-y-2">
+          <div className="p-3 border-b border-dark-800 bg-dark-900/70 backdrop-blur-md flex flex-col space-y-2 shrink-0">
             <p className="text-[10px] uppercase font-bold tracking-wider text-dark-500">Filter Search Context</p>
-            <div className="flex flex-wrap gap-2 max-h-[80px] overflow-y-auto py-1">
+            <div className="flex flex-wrap gap-1.5 max-h-[90px] overflow-y-auto py-1">
               {documents.map((doc) => {
                 const checked = selectedDocIds.includes(doc.id);
                 return (
@@ -423,7 +507,7 @@ export const Chat: React.FC = () => {
                     key={doc.id}
                     onClick={() => handleDocFilterToggle(doc.id)}
                     className={`
-                      px-3 py-1 rounded-full text-xs font-semibold transition-all border inline-flex items-center space-x-1.5
+                      px-2.5 py-1 rounded-full text-xs font-semibold transition-all border inline-flex items-center space-x-1.5
                       ${checked 
                         ? 'bg-brand-600/10 border-brand-500/30 text-brand-400' 
                         : 'bg-dark-900 border-dark-800 text-dark-400 hover:border-dark-700'
@@ -431,7 +515,7 @@ export const Chat: React.FC = () => {
                     `}
                   >
                     {checked && <Check className="h-3 w-3" />}
-                    <span className="truncate max-w-[120px]">{doc.name}</span>
+                    <span className="truncate max-w-[130px]">{doc.name}</span>
                   </button>
                 );
               })}
@@ -439,8 +523,11 @@ export const Chat: React.FC = () => {
           </div>
         )}
 
-        {/* Message Log Viewport */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+        {/* Message Log Viewport (Smooth Touch Scrolling) */}
+        <div 
+          className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 min-h-0 overscroll-contain"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
           {chatLoading ? (
             <div className="flex flex-col items-center justify-center h-full py-12 space-y-3">
               <svg className="animate-spin h-8 w-8 text-brand-500" fill="none" viewBox="0 0 24 24">
@@ -451,20 +538,19 @@ export const Chat: React.FC = () => {
             </div>
           ) : messages.length === 0 ? (
             /* Prompt screen */
-            <div className="h-full flex flex-col items-center justify-center text-center max-w-lg mx-auto py-12">
-              <Sparkles className="h-10 w-10 text-brand-400 mb-4 animate-bounce" />
-              <h3 className="text-xl font-bold text-white">Ask your knowledge base</h3>
+            <div className="h-full flex flex-col items-center justify-center text-center max-w-lg mx-auto py-8 sm:py-12 px-2">
+              <Sparkles className="h-8 sm:h-10 w-8 sm:w-10 text-brand-400 mb-3 animate-bounce" />
+              <h3 className="text-lg sm:text-xl font-bold text-white">Ask your knowledge base</h3>
               <p className="text-xs text-dark-400 mt-2 leading-relaxed">
-                Submit queries about your uploaded papers. Gemini will digest vectorized context segments and compile a concise, cited response.
+                Submit queries about your uploaded papers. Gemini will digest vectorized context segments and compile a concise response.
               </p>
               
-              {/* suggestions list */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full mt-6">
                 {suggestions.map((sug, sIdx) => (
                   <button
                     key={sIdx}
                     onClick={() => handleSendMessage(sug)}
-                    className="p-3 bg-dark-900 border border-dark-800 hover:border-brand-500/30 rounded-xl hover:bg-dark-800/40 text-left text-xs font-semibold text-dark-300 transition-all leading-normal hover:scale-[1.01]"
+                    className="p-3 bg-dark-900/80 border border-dark-800 hover:border-brand-500/30 rounded-xl hover:bg-dark-800/50 text-left text-xs font-medium text-dark-300 transition-all leading-normal active:scale-[0.98]"
                   >
                     {sug}
                   </button>
@@ -473,7 +559,7 @@ export const Chat: React.FC = () => {
             </div>
           ) : (
             /* Message list */
-            <div className="space-y-6">
+            <div className="space-y-4 sm:space-y-6">
               {messages.map((msg) => {
                 const isUser = msg.role === 'user';
                 return (
@@ -482,9 +568,9 @@ export const Chat: React.FC = () => {
                     className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                   >
                     <div className={`
-                      max-w-[85%] rounded-2xl p-4 border text-sm
+                      max-w-[92%] sm:max-w-[85%] rounded-2xl p-3.5 sm:p-4 border text-xs sm:text-sm
                       ${isUser 
-                        ? 'bg-brand-600/10 border-brand-500/20 text-brand-100 rounded-tr-none' 
+                        ? 'bg-brand-600/15 border-brand-500/25 text-brand-100 rounded-tr-none' 
                         : 'glass border-dark-800 text-dark-100 rounded-tl-none'
                       }
                     `}>
@@ -495,7 +581,7 @@ export const Chat: React.FC = () => {
 
                       {/* Message Meta / Sources (only for Assistant) */}
                       {!isUser && (
-                        <div className="mt-4 pt-3.5 border-t border-dark-800 flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0 text-xs">
+                        <div className="mt-3.5 pt-3 border-t border-dark-800/80 flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2.5 sm:space-y-0 text-xs">
                           {/* Sources list */}
                           <div className="flex flex-wrap gap-1.5">
                             {msg.sources && msg.sources.length > 0 ? (
@@ -503,10 +589,10 @@ export const Chat: React.FC = () => {
                                 <button
                                   key={srcIdx}
                                   onClick={() => setSelectedCitation(src)}
-                                  className="px-2 py-0.5 bg-dark-900 border border-dark-800 hover:border-brand-500/30 rounded text-[10px] text-dark-400 hover:text-brand-400 font-semibold transition-all inline-flex items-center space-x-1"
+                                  className="px-2 py-0.5 bg-dark-900/90 border border-dark-800 hover:border-brand-500/30 rounded text-[10px] text-dark-300 hover:text-brand-400 font-semibold transition-all inline-flex items-center space-x-1"
                                 >
-                                  <BookOpen className="h-3 w-3 shrink-0" />
-                                  <span className="truncate max-w-[100px]">{src.document_name}</span>
+                                  <BookOpen className="h-3 w-3 shrink-0 text-brand-400" />
+                                  <span className="truncate max-w-[110px] sm:max-w-[140px]">{src.document_name}</span>
                                   <span>p.{src.page_number}</span>
                                 </button>
                               ))
@@ -519,10 +605,10 @@ export const Chat: React.FC = () => {
                           </div>
 
                           {/* Quick buttons (Feedback & Copy) */}
-                          <div className="flex items-center space-x-2 shrink-0">
+                          <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
                             <button
                               onClick={() => copyToClipboard(msg.content, msg.id)}
-                              className="p-1 hover:bg-dark-900 rounded text-dark-500 hover:text-dark-300 transition-colors"
+                              className="p-1 hover:bg-dark-800 rounded text-dark-500 hover:text-dark-300 transition-colors"
                               title="Copy Answer"
                             >
                               {copiedId === msg.id ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
@@ -550,13 +636,13 @@ export const Chat: React.FC = () => {
               {/* Spinner for indexing / typing */}
               {loading && (
                 <div className="flex justify-start">
-                  <div className="glass border-dark-800 rounded-2xl rounded-tl-none p-4 flex items-center space-x-2">
+                  <div className="glass border-dark-800 rounded-2xl rounded-tl-none p-3.5 sm:p-4 flex items-center space-x-2">
                     <div className="typing-dots flex space-x-1 text-brand-400">
                       <span>•</span>
                       <span>•</span>
                       <span>•</span>
                     </div>
-                    <span className="text-xs text-dark-500 font-medium select-none">Gemini is searching docs...</span>
+                    <span className="text-xs text-dark-400 font-medium select-none">Gemini is searching docs...</span>
                   </div>
                 </div>
               )}
@@ -566,10 +652,10 @@ export const Chat: React.FC = () => {
         </div>
 
         {/* Input box */}
-        <div className="p-4 border-t border-dark-800 bg-dark-900/20">
+        <div className="p-3 sm:p-4 border-t border-dark-800 bg-dark-900/60 backdrop-blur-md shrink-0">
           <form 
             onSubmit={(e) => { e.preventDefault(); handleSendMessage(inputMessage); }}
-            className="flex items-center space-x-3 bg-dark-900 border border-dark-800 focus-within:border-brand-500/50 focus-within:ring-1 focus-within:ring-brand-500/50 rounded-2xl px-4 py-2"
+            className="flex items-center space-x-2 sm:space-x-3 bg-dark-900 border border-dark-800 focus-within:border-brand-500/50 focus-within:ring-1 focus-within:ring-brand-500/50 rounded-2xl px-3 sm:px-4 py-1.5 sm:py-2"
           >
             <input
               type="text"
@@ -577,7 +663,7 @@ export const Chat: React.FC = () => {
               onChange={(e) => setInputMessage(e.target.value)}
               placeholder="Ask a question about your documents..."
               disabled={loading}
-              className="w-full bg-transparent border-none py-1.5 focus:outline-none text-white placeholder-dark-500 text-sm disabled:opacity-50"
+              className="w-full bg-transparent border-none py-1 focus:outline-none text-white placeholder-dark-500 text-xs sm:text-sm disabled:opacity-50"
             />
             <button
               type="submit"
@@ -590,9 +676,9 @@ export const Chat: React.FC = () => {
         </div>
       </section>
 
-      {/* 3. Right Citation Details Drawer Sidebar */}
+      {/* 3. Desktop Citation Details Drawer Sidebar */}
       {selectedCitation && (
-        <aside className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-dark-800 flex flex-col justify-between bg-dark-900/50 shrink-0 z-10">
+        <aside className="hidden lg:flex w-80 border-l border-dark-800 flex-col justify-between bg-dark-900/50 shrink-0 z-10 min-h-0">
           <div className="p-4 border-b border-dark-800 flex items-center justify-between bg-dark-900/20">
             <span className="text-xs font-bold text-white tracking-wider uppercase">Source Citations</span>
             <button 
@@ -603,7 +689,7 @@ export const Chat: React.FC = () => {
             </button>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
             <div>
               <p className="text-[10px] font-semibold text-dark-500 uppercase tracking-wider">Document Name</p>
               <p className="text-sm font-bold text-brand-400 mt-1 truncate">{selectedCitation.document_name}</p>
@@ -628,6 +714,51 @@ export const Chat: React.FC = () => {
             </div>
           </div>
         </aside>
+      )}
+
+      {/* Mobile Citation Sheet Overlay (Bottom sheet modal on mobile screens) */}
+      {selectedCitation && (
+        <div className="lg:hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end justify-center p-0 sm:p-4">
+          <div className="w-full max-w-lg bg-dark-900 border-t sm:border border-dark-800 rounded-t-2xl sm:rounded-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-dark-800 flex items-center justify-between bg-dark-950/60">
+              <span className="text-xs font-bold text-white tracking-wider uppercase flex items-center space-x-2">
+                <BookOpen className="h-4 w-4 text-brand-400" />
+                <span>Source Citation Details</span>
+              </span>
+              <button 
+                onClick={() => setSelectedCitation(null)}
+                className="p-1 hover:bg-dark-800 text-dark-400 hover:text-white rounded-lg transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+              <div>
+                <p className="text-[10px] font-semibold text-dark-500 uppercase tracking-wider">Document Name</p>
+                <p className="text-sm font-bold text-brand-400 mt-1 truncate">{selectedCitation.document_name}</p>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-dark-950/50 p-2.5 rounded-xl border border-dark-800">
+                  <p className="text-[10px] font-semibold text-dark-500 uppercase tracking-wider">Page Number</p>
+                  <p className="text-sm font-bold text-white mt-0.5">Page {selectedCitation.page_number}</p>
+                </div>
+                <div className="bg-dark-950/50 p-2.5 rounded-xl border border-dark-800">
+                  <p className="text-[10px] font-semibold text-dark-500 uppercase tracking-wider">Match Accuracy</p>
+                  <p className="text-sm font-bold text-emerald-400 mt-0.5">{(selectedCitation.similarity * 100).toFixed(1)}%</p>
+                </div>
+              </div>
+
+              <div className="border-t border-dark-800 pt-3">
+                <p className="text-[10px] font-semibold text-dark-500 uppercase tracking-wider mb-2">Retrieved Segment Chunk</p>
+                <div className="bg-dark-950/80 border border-dark-800 rounded-xl p-3.5 text-xs text-dark-200 leading-relaxed font-mono overflow-y-auto max-h-[250px]">
+                  {selectedCitation.chunk}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

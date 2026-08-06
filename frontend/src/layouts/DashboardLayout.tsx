@@ -116,8 +116,8 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        <div className="flex-1 px-4 py-8 md:p-8 max-w-7xl w-full mx-auto">
+      <main className={`flex-1 flex flex-col min-w-0 min-h-0 ${location.pathname === '/chat' ? 'h-[calc(100dvh-4rem)] md:h-screen overflow-hidden' : 'overflow-y-auto'}`}>
+        <div className={`flex-1 w-full mx-auto flex flex-col min-h-0 ${location.pathname === '/chat' ? 'p-2 sm:p-4 md:p-6 max-w-full' : 'px-4 py-8 md:p-8 max-w-7xl'}`}>
           {children}
         </div>
       </main>
