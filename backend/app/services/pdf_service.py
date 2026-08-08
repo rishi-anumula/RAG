@@ -32,6 +32,25 @@ class PDFProcessingService:
         chunk_counter = 0
         ext = os.path.splitext(file_path.lower())[1]
 
+        # Support DOCX and Word document files
+        if ext in [".docx", ".doc"]:
+            try:
+                from app.services.docx_service import extract_text_from_docx
+                full_text = extract_text_from_docx(file_path)
+                if full_text.strip():
+                    text_chunks = self.splitter.split_text(full_text)
+                    for idx, chunk_txt in enumerate(text_chunks):
+                        if chunk_txt.strip():
+                            yield {
+                                "text": chunk_txt.strip(),
+                                "page": 1,
+                                "chunk_index": idx
+                            }
+                    logger.info(f"DOCX generator finished. Memory: {get_memory_usage_mb():.2f} MB")
+                    return
+            except Exception as docx_err:
+                logger.warning(f"Failed reading as DOCX file: {docx_err}")
+
         # Support plain text, md, csv, json document files
         if ext in [".txt", ".md", ".csv", ".json", ".log"]:
             try:

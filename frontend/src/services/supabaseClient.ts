@@ -10,7 +10,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const signInWithGoogle = async (redirectTo?: string) => {
-  const targetRedirect = redirectTo || `${window.location.origin}/`;
+  const targetRedirect = redirectTo || window.location.origin;
+  console.log('[OAuth Redirect]: Initializing Google Sign-In with redirectTo:', targetRedirect);
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {

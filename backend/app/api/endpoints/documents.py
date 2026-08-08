@@ -13,6 +13,8 @@ from app.core.security import get_current_user
 from app.core.logging_config import get_logger, get_memory_usage_mb
 from app.database.supabase_client import get_supabase_client, safe_supabase_query
 from app.services.pdf_service import pdf_service
+from app.services.docx_service import extract_text_from_docx
+from app.services.text_splitter import RecursiveCharacterTextSplitter
 from app.embeddings.embedder import embedding_service
 from app.vectorstore.supabase_vector_client import add_document_chunks, delete_document_chunks
 
@@ -72,37 +74,74 @@ def async_process_document(document_id: str, file_path: str, filename: str, user
                 logger.warning(f"Could not retrieve file from cloud storage for processing: {dl_err}")
 
         # Step 2-4: Stream page-by-page chunking & batch embedding in memory-safe batches of 20
-        logger.info(f"[STEP 2-4] Streaming PDF extraction and batch embedding (Batch Size: {BATCH_SIZE}) from: {file_path}")
+        logger.info(f"[STEP 2-4] Streaming document extraction and batch embedding (Batch Size: {BATCH_SIZE}) from: {file_path}")
         
         batch_chunks = []
         batch_pages = []
         batch_indices = []
         total_chunks = 0
 
+        ext = os.path.splitext(filename.lower())[1]
+
         if os.path.exists(file_path):
-            for chunk_item in pdf_service.extract_and_chunk_generator(file_path):
-                batch_chunks.append(chunk_item["text"])
-                batch_pages.append(chunk_item["page"])
-                batch_indices.append(chunk_item["chunk_index"])
-                total_chunks += 1
+            if ext in [".docx", ".doc"]:
+                logger.info(f"[DOCX EXTRACTION] Extracting text from Word document: {file_path}")
+                with open(file_path, "rb") as f:
+                    file_bytes = f.read()
+                raw_text = extract_text_from_docx(file_bytes)
+                
+                if raw_text.strip():
+                    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                    text_chunks = splitter.split_text(raw_text)
+                    for idx, chunk_txt in enumerate(text_chunks):
+                        if not chunk_txt.strip():
+                            continue
+                        batch_chunks.append(chunk_txt.strip())
+                        batch_pages.append(1)
+                        batch_indices.append(idx)
+                        total_chunks += 1
 
-                if len(batch_chunks) >= BATCH_SIZE:
-                    logger.info(f"[BATCH EMBEDDING] Processing batch of {len(batch_chunks)} chunks (Total processed: {total_chunks}) | RAM: {get_memory_usage_mb():.2f} MB")
-                    embeddings = embedding_service.get_embeddings(batch_chunks)
-                    
-                    add_document_chunks(
-                        user_id=user_id,
-                        document_id=document_id,
-                        filename=filename,
-                        chunks=batch_chunks,
-                        embeddings=embeddings,
-                        start_page=batch_pages,
-                        chunk_indices=batch_indices
-                    )
+                        if len(batch_chunks) >= BATCH_SIZE:
+                            logger.info(f"[BATCH EMBEDDING] Processing batch of {len(batch_chunks)} chunks (Total processed: {total_chunks}) | RAM: {get_memory_usage_mb():.2f} MB")
+                            embeddings = embedding_service.get_embeddings(batch_chunks)
+                            
+                            add_document_chunks(
+                                user_id=user_id,
+                                document_id=document_id,
+                                filename=filename,
+                                chunks=batch_chunks,
+                                embeddings=embeddings,
+                                start_page=batch_pages,
+                                chunk_indices=batch_indices
+                            )
 
-                    del batch_chunks, batch_pages, batch_indices, embeddings
-                    gc.collect()
-                    batch_chunks, batch_pages, batch_indices = [], [], []
+                            del batch_chunks, batch_pages, batch_indices, embeddings
+                            gc.collect()
+                            batch_chunks, batch_pages, batch_indices = [], [], []
+            else:
+                for chunk_item in pdf_service.extract_and_chunk_generator(file_path):
+                    batch_chunks.append(chunk_item["text"])
+                    batch_pages.append(chunk_item["page"])
+                    batch_indices.append(chunk_item["chunk_index"])
+                    total_chunks += 1
+
+                    if len(batch_chunks) >= BATCH_SIZE:
+                        logger.info(f"[BATCH EMBEDDING] Processing batch of {len(batch_chunks)} chunks (Total processed: {total_chunks}) | RAM: {get_memory_usage_mb():.2f} MB")
+                        embeddings = embedding_service.get_embeddings(batch_chunks)
+                        
+                        add_document_chunks(
+                            user_id=user_id,
+                            document_id=document_id,
+                            filename=filename,
+                            chunks=batch_chunks,
+                            embeddings=embeddings,
+                            start_page=batch_pages,
+                            chunk_indices=batch_indices
+                        )
+
+                        del batch_chunks, batch_pages, batch_indices, embeddings
+                        gc.collect()
+                        batch_chunks, batch_pages, batch_indices = [], [], []
 
         # Process any remaining items in the final batch
         if batch_chunks:
@@ -181,7 +220,7 @@ def upload_document(
     current_user: Any = Depends(get_current_user)
 ):
     """
-    Upload a PDF document using streaming file writing directly to disk to prevent RAM spikes.
+    Upload a document using streaming file writing directly to disk to prevent RAM spikes.
     Saves it locally, uploads to Supabase storage, registers metadata in DB, and queues vector indexing.
     """
     ram_start = get_memory_usage_mb()
@@ -233,7 +272,7 @@ def upload_document(
 
     local_file_path = os.path.join(user_upload_dir, filename)
     
-    # Task 2: Stream file directly to disk in 1MB chunks to ensure uploaded PDFs are physically saved
+    # Task 2: Stream file directly to disk in 1MB chunks to ensure uploaded files are physically saved
     file_size = 0
     buffer_chunk_size = 1024 * 1024  # 1 MB buffer
     try:
@@ -269,8 +308,15 @@ def upload_document(
     try:
         def storage_upload():
             bucket = supabase.storage.from_("pdfs")
+            content_type = "application/pdf"
+            if ext == ".docx":
+                content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            elif ext == ".doc":
+                content_type = "application/msword"
+            elif ext in [".txt", ".md", ".csv", ".json", ".log"]:
+                content_type = "text/plain"
             with open(local_file_path, "rb") as f:
-                bucket.upload(path=storage_path, file=f.read(), file_options={"content-type": "application/pdf"})
+                bucket.upload(path=storage_path, file=f.read(), file_options={"content-type": content_type})
         safe_supabase_query(storage_upload, None, timeout_seconds=4.0)
         logger.info(f"[SUPABASE UPLOAD] Uploaded to bucket 'pdfs' at path: {storage_path}")
     except Exception as e:
@@ -616,9 +662,18 @@ def rename_document(
     """
     supabase = get_supabase_client()
     
-    new_name = payload.name
-    if not new_name.lower().endswith(".pdf"):
-        new_name += ".pdf"
+    new_name = payload.name.strip()
+    if not os.path.splitext(new_name)[1]:
+        try:
+            doc_res = supabase.table("documents").select("name").eq("id", document_id).eq("user_id", current_user.id).execute()
+            if doc_res.data:
+                orig_ext = os.path.splitext(doc_res.data[0]["name"])[1]
+                new_name += orig_ext
+            else:
+                new_name += ".pdf"
+        except Exception:
+            new_name += ".pdf"
+
 
     def rename_primary():
         return supabase.table("documents").update({"name": new_name}).eq("id", document_id).eq("user_id", current_user.id).execute()

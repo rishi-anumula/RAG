@@ -1,7 +1,7 @@
-import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider, useAuth } from './hooks/useAuth';
+import { AuthProvider } from './hooks/useAuth';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { Login } from './pages/Login';
 import { LandingPage } from './pages/LandingPage';
 import { Dashboard } from './pages/Dashboard';
@@ -21,25 +21,8 @@ const queryClient = new QueryClient({
   },
 });
 
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-dark-950 flex items-center justify-center">
-        <div className="h-8 w-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <>{children}</>;
-};
-
 function AppRoutes() {
+  console.log('[App Load]: Current window.location.href:', window.location.href);
   return (
     <Routes>
       {/* Landing Page */}

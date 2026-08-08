@@ -87,11 +87,13 @@ export const Login: React.FC = () => {
   const handleGoogleLogin = async () => {
     setError(null);
     setGoogleLoading(true);
+    const redirectUrl = window.location.origin;
+    console.log('[OAuth Redirect]: Initializing Google Sign-In with redirectTo:', redirectUrl);
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/`,
+          redirectTo: redirectUrl,
         },
       });
       if (error) throw error;

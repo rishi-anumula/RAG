@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { User, LoginCredentials, SignupCredentials } from '../types';
 import { authService } from '../services/authService';
+import { supabase } from '../services/supabaseClient';
 
 interface AuthContextType {
   user: User | null;
@@ -17,13 +19,15 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    // Check saved session on mount
+    console.log('[Auth Hook]: Initializing AuthProvider with window.location.href:', window.location.href);
+
+    // 1. Initial check for existing local session / user
     const savedUser = authService.getCurrentUser();
     const token = localStorage.getItem('rag_token');
 
-    // Clean up any stale guest token leftover from previous auto-login behavior
     if (token === 'mock-guest-token') {
       localStorage.removeItem('rag_token');
       localStorage.removeItem('rag_user');
@@ -33,8 +37,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       setUser(null);
     }
-    setLoading(false);
-  }, []);
+
+    // 2. Fetch active Supabase session if available
+    supabase.auth.getSession().then((res) => {
+      if (res?.error) {
+        console.warn('[Auth Hook]: Error restoring Supabase session:', res.error.message);
+      }
+      const session = res?.data?.session;
+      if (session && session.user) {
+        console.log('[Auth Hook]: Active Supabase session found for user:', session.user.email);
+        const authUser: User = {
+          id: session.user.id,
+          email: session.user.email || '',
+        };
+        localStorage.setItem('rag_token', session.access_token);
+        localStorage.setItem('rag_user', JSON.stringify(authUser));
+        setUser(authUser);
+      }
+      setLoading(false);
+    }).catch((err) => {
+      console.warn('[Auth Hook]: Exception restoring Supabase session:', err);
+      setLoading(false);
+    });
+
+    // 3. Set up onAuthStateChange listener to handle OAuth redirect & session events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log(`[Auth Listener]: Event "${event}" triggered. Location: ${window.location.href}`);
+      if (session && session.user) {
+        const authUser: User = {
+          id: session.user.id,
+          email: session.user.email || '',
+        };
+        localStorage.setItem('rag_token', session.access_token);
+        localStorage.setItem('rag_user', JSON.stringify(authUser));
+        setUser(authUser);
+
+        // Handle specific events (e.g. redirect to /dashboard upon returning from Google OAuth)
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+          if (window.location.pathname === '/' || window.location.pathname === '/login') {
+            navigate('/dashboard');
+          }
+        }
+      } else if (event === 'SIGNED_OUT') {
+        localStorage.removeItem('rag_token');
+        localStorage.removeItem('rag_user');
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [navigate]);
 
   const login = async (credentials: LoginCredentials) => {
     setLoading(true);
@@ -53,13 +108,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const response = await authService.signup(credentials);
       if (response.user) {
-        // If session was returned upon signup, save it
         if (response.session) {
           localStorage.setItem('rag_token', response.session.access_token);
           localStorage.setItem('rag_user', JSON.stringify(response.user));
           setUser(response.user);
         } else {
-          // Fallback login
           await login(credentials);
         }
       }
@@ -79,6 +132,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    supabase.auth.signOut().catch(() => {});
     authService.logout();
     setUser(null);
   };

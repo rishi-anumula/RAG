@@ -17,8 +17,8 @@ export const authService = {
     return response.data;
   },
 
-  async googleLogin(): Promise<void> {
-    await signInWithGoogle();
+  async googleLogin(redirectTo?: string): Promise<void> {
+    await signInWithGoogle(redirectTo || window.location.origin);
   },
 
   logout(): void {

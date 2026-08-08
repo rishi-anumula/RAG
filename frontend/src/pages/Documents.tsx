@@ -27,6 +27,7 @@ export const Documents: React.FC = () => {
   // Modal / Interaction States
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [renameExt, setRenameExt] = useState('.pdf');
   const [renaming, setRenaming] = useState(false);
 
   // Task 7: Load documents using React Query with auto-polling for processing status
@@ -80,14 +81,14 @@ export const Documents: React.FC = () => {
   };
 
   const handleFiles = async (files: File[]) => {
-    const validExts = ['.pdf', '.txt', '.md', '.csv', '.json', '.doc', '.docx', '.log'];
+    const validExts = ['.pdf', '.docx', '.doc', '.txt', '.md', '.csv', '.json', '.log'];
     const validFiles = files.filter(f => {
       const name = f.name.toLowerCase();
       return validExts.some(ext => name.endsWith(ext));
     });
 
     if (validFiles.length === 0) {
-      alert('Supported document formats are PDF, TXT, MD, CSV, JSON, and DOCX.');
+      alert('Supported document formats are PDF, DOCX, DOC, TXT, MD, and CSV.');
       return;
     }
 
@@ -115,7 +116,7 @@ export const Documents: React.FC = () => {
         const status = err?.response?.status;
         let detail = err?.response?.data?.detail || err?.message;
         if (status === 413 || (detail && detail.toLowerCase().includes('large'))) {
-          detail = `File "${file.name}" exceeds the server payload size limit. Please upload a smaller PDF or compress the file.`;
+          detail = `File "${file.name}" exceeds the server payload size limit. Please upload a smaller file or compress it.`;
         } else if (!detail) {
           detail = `Failed to upload "${file.name}". Please verify your network connection and try again.`;
         }
@@ -150,15 +151,21 @@ export const Documents: React.FC = () => {
   const openRenameModal = (doc: Document) => {
     const docId = doc.id || doc.document_id || '';
     const docName = doc.name || doc.filename || '';
+    const match = docName.match(/(\.[^.]+)$/);
+    const ext = match ? match[1] : '.pdf';
     setRenameId(docId);
-    setRenameValue(docName.replace(/\.pdf$/i, ''));
+    setRenameExt(ext);
+    setRenameValue(docName.replace(/(\.[^.]+)$/, ''));
   };
 
   const handleRenameSubmit = async () => {
     if (!renameId || !renameValue.trim()) return;
     setRenaming(true);
     try {
-      await documentService.rename(renameId, renameValue.trim());
+      const fullNewName = renameValue.trim().endsWith(renameExt)
+        ? renameValue.trim()
+        : `${renameValue.trim()}${renameExt}`;
+      await documentService.rename(renameId, fullNewName);
       queryClient.invalidateQueries({ queryKey: ['documents'] });
       setRenameId(null);
     } catch (err) {
@@ -167,6 +174,7 @@ export const Documents: React.FC = () => {
       setRenaming(false);
     }
   };
+
 
   const formatBytes = (bytes: number, decimals = 2) => {
     if (bytes === 0) return '0 Bytes';
@@ -189,7 +197,7 @@ export const Documents: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
         <div>
           <h1 className="text-3xl font-extrabold text-white tracking-tight">Documents</h1>
-          <p className="text-dark-400 text-sm mt-1">Upload and manage PDFs in your search registry</p>
+          <p className="text-dark-400 text-sm mt-1">Upload and manage PDFs and Word documents in your search registry</p>
         </div>
         
         {/* Search bar */}
@@ -230,7 +238,7 @@ export const Documents: React.FC = () => {
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".pdf,.txt,.md,.csv,.json,.doc,.docx,.log"
+              accept=".pdf,.docx,.doc,.txt,.md,.csv,.json,.log"
               onChange={handleFileInputChange}
               className="hidden"
             />
@@ -238,7 +246,7 @@ export const Documents: React.FC = () => {
               <UploadCloud className="h-7 w-7" />
             </div>
             <h4 className="text-sm font-semibold text-white">Drag & drop files here</h4>
-            <p className="text-xs text-dark-500 mt-1 max-w-[200px]">Supports PDF, TXT, MD, CSV, and DOCX files up to 100MB each</p>
+            <p className="text-xs text-dark-500 mt-1 max-w-[200px]">Supports PDF, DOCX, DOC, TXT, MD, and CSV files up to 1GB each</p>
             <button className="mt-4 px-4 py-2 bg-dark-800 border border-dark-700 hover:bg-dark-750 text-dark-100 rounded-xl text-xs font-semibold transition-colors">
               Browse Files
             </button>
@@ -431,7 +439,7 @@ export const Documents: React.FC = () => {
                   className="w-full bg-transparent border-none py-2.5 px-4 text-white focus:outline-none text-sm"
                   autoFocus
                 />
-                <span className="text-dark-500 text-sm font-semibold select-none">.pdf</span>
+                <span className="text-dark-500 text-sm font-semibold select-none">{renameExt}</span>
               </div>
             </div>
             <div className="flex justify-end space-x-3 pt-2">
