@@ -8,7 +8,7 @@ const getApiBaseUrl = () => {
   if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     return 'http://localhost:8000';
   }
-  return 'https://rag-backend-6ozj.onrender.com';
+  return 'https://rag-backend-fe1u.onrender.com';
 };
 
 const API_BASE_URL = getApiBaseUrl();
